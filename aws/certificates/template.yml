@@ -1,0 +1,56 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CloudFront certificates. Deploy this stack in us-east-1.
+
+Parameters:
+  ProjectPrefix:
+    Type: String
+    Default: inbox
+  CertificateName:
+    Type: String
+    Default: inbox
+  Environment:
+    Type: String
+    AllowedValues:
+      - dev
+      - www
+  HostedZoneId:
+    Type: String
+    Description: Route53 hosted zone ID for the certificate domain.
+  WebDomainName:
+    Type: String
+  AdditionalDomainName:
+    Type: String
+    Default: ""
+
+Conditions:
+  HasAdditionalDomainName: !Not [!Equals [!Ref AdditionalDomainName, ""]]
+
+Resources:
+  CloudFrontCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref WebDomainName
+      SubjectAlternativeNames: !If
+        - HasAdditionalDomainName
+        - [!Ref AdditionalDomainName]
+        - !Ref AWS::NoValue
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref WebDomainName
+          HostedZoneId: !Ref HostedZoneId
+        - !If
+          - HasAdditionalDomainName
+          - DomainName: !Ref AdditionalDomainName
+            HostedZoneId: !Ref HostedZoneId
+          - !Ref AWS::NoValue
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectPrefix
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  CloudFrontCertificateArn:
+    Value: !Ref CloudFrontCertificate
+    Export:
+      Name: !Sub "${ProjectPrefix}-${Environment}-${CertificateName}-cloudfront-certificate-arn"

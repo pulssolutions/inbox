@@ -1,0 +1,12 @@
+node_modules/
+dist/
+site/
+.DS_Store
+*.log
+
+# Local Vite env overrides - never committed.
+.env.local
+.env.*.local
+
+# Claude Code scheduled-task state - runtime only.
+.claude/

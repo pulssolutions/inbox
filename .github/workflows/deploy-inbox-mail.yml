@@ -1,0 +1,42 @@
+name: Deploy Inbox Mail
+
+# Activating the receipt rule set is part of this deploy: without it the
+# stack is green and every message is dropped.
+#
+# Thin caller: the logic lives in _deploy.yml so the seven stack workflows
+# cannot drift apart. Account and region come from the deployment profile.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - aws/services/inbox-mail/**
+      - .github/workflows/deploy-inbox-mail.yml
+      - .github/workflows/_deploy.yml
+      - scripts/**
+      - deployments/**
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment
+        required: true
+        default: dev
+        type: choice
+        options: [dev, www]
+      profile:
+        description: Deployment profile (blank uses the DEPLOY_PROFILE variable)
+        required: false
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      stack: inbox-mail
+      environment: ${{ inputs.environment || 'dev' }}
+      profile: ${{ inputs.profile }}
+    secrets: inherit

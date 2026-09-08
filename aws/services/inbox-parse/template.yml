@@ -1,0 +1,530 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Inbox parse Lambda. Invoked by the inbox-mail
+  router (a singleton in eu-west-1) with an SES event for a single inbound
+  message. Resolves the tenant from the recipient domain, writes a message
+  index row to this environment's inbox table in eu-north-1, threads replies,
+  and emails the responsible admins. Raw MIME is already stored in S3 by the
+  router stack's SES receipt rule; this Lambda only references the S3 key.
+
+Parameters:
+  ProjectPrefix:
+    Type: String
+    Default: inbox
+  Environment:
+    Type: String
+    AllowedValues:
+      - dev
+      - www
+  LogRetentionDays:
+    Type: Number
+    Default: 14
+  InboxTableName:
+    Type: String
+    Description: DynamoDB table this environment owns.
+  BucketName:
+    Type: String
+    Description: Shared inbox-mail raw-MIME bucket (owned by the router stack).
+  Locale:
+    Type: String
+    Default: en
+    AllowedValues: [en, sv]
+    Description: Language of customer-facing email this deployment sends.
+  ObjectPrefix:
+    Type: String
+    Default: "inbound/"
+  SenderEmail:
+    Type: String
+    Description: Verified SES sender (eu-north-1) used for admin notifications.
+  NotifySenderName:
+    Type: String
+    Default: Inbox
+    Description: Friendly From display name shown on admin notification emails.
+  WebBaseUrl:
+    Type: String
+    Description: Inbox web app base URL for notification deep links (/m/{rootId}).
+
+Resources:
+  ParseLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectPrefix}-inbox-parse-${Environment}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: Access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ProjectPrefix}-inbox-parse-${Environment}:*"
+              # Cross-region access to THIS environment's inbox table only.
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:Query
+                  - dynamodb:UpdateItem
+                Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InboxTableName}"
+              # Notify the responsible admins (SES sending lives in eu-north-1).
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: "*"
+
+  ParseLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ProjectPrefix}-inbox-parse-${Environment}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  ParseLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: ParseLambdaLogGroup
+    Properties:
+      FunctionName: !Sub "${ProjectPrefix}-inbox-parse-${Environment}"
+      Runtime: nodejs22.x
+      Handler: index.handler
+      Role: !GetAtt ParseLambdaRole.Arn
+      MemorySize: 256
+      Timeout: 30
+      Environment:
+        Variables:
+          BUCKET: !Ref BucketName
+          OBJECT_PREFIX: !Ref ObjectPrefix
+          INBOX_TABLE: !Ref InboxTableName
+          SENDER_EMAIL: !Ref SenderEmail
+          SENDER_NAME: !Ref NotifySenderName
+          WEB_BASE_URL: !Ref WebBaseUrl
+          LOCALE: !Ref Locale
+      Code:
+        # Inline / dependency-free (nodejs22 bundles @aws-sdk v3). Receives an
+        # SES event (forwarded by the router for one message), resolves the
+        # tenant from the To: domain, writes a message index row to the inbox
+        # table in eu-north-1, threads replies, and notifies admins.
+        ZipFile: |
+          const {
+            DynamoDBClient,
+            GetItemCommand,
+            PutItemCommand,
+            QueryCommand,
+            UpdateItemCommand
+          } = require('@aws-sdk/client-dynamodb')
+          const { SESClient, SendEmailCommand } = require('@aws-sdk/client-ses')
+
+          // Table, sending and receiving are all in this Lambda's own region:
+          // one deployment, one region, so the clients need no region at all.
+          // (The original hardcoded eu-north-1 here for a cross-region split
+          // that no longer exists - which silently broke any other region.)
+          const ddb = new DynamoDBClient({})
+          const ses = new SESClient({})
+          const TABLE = process.env.INBOX_TABLE
+          const PREFIX = process.env.OBJECT_PREFIX || ''
+          const SENDER = process.env.SENDER_EMAIL
+          const SENDER_NAME = process.env.SENDER_NAME
+          const WEB_BASE_URL = process.env.WEB_BASE_URL
+
+          // RFC 2047 encoded-word for a non-ASCII display name (e.g. "Ärenden
+          // Inbox"); ASCII names are quoted as-is. The envelope address stays bare.
+          const senderSource = () => {
+            if (!SENDER_NAME) return SENDER
+            const name = /^[\x00-\x7F]*$/.test(SENDER_NAME)
+              ? '"' + SENDER_NAME + '"'
+              : '=?UTF-8?B?' + Buffer.from(SENDER_NAME, 'utf8').toString('base64') + '?='
+            return name + ' <' + SENDER + '>'
+          }
+
+          const escapeHtml = (s) =>
+            String(s == null ? '' : s)
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+
+          // Trimmed copy of the inbox-service themed wrapper (no images, inline
+          // CSS). Kept in sync with aws/services/inbox/src/ses.js#buildEmail.
+          // Email copy by locale. This function is inline and dependency-free,
+          // so it cannot import src/strings.js - keep the two in step by hand.
+          const STRINGS = {
+            en: {
+              ctaOpen: 'Open',
+              ctaOpenIssue: 'Open the issue',
+              automatedFrom: 'This is an automated message from ',
+              newIssueHeading: 'New issue',
+              newReplyHeading: 'New reply on an issue',
+              newIssueSubject: 'New issue: ',
+              newReplySubject: 'New reply: ',
+              noSubject: '(no subject)',
+              fromLine: 'From: ',
+              subjectLine: 'Subject: ',
+              categoryLine: 'Category: ',
+              unknown: 'unknown'
+            },
+            sv: {
+              ctaOpen: 'Öppna',
+              ctaOpenIssue: 'Öppna ärendet',
+              automatedFrom: 'Detta är ett automatiskt meddelande från ',
+              newIssueHeading: 'Nytt ärende',
+              newReplyHeading: 'Nytt svar i ett ärende',
+              newIssueSubject: 'Nytt ärende: ',
+              newReplySubject: 'Nytt svar: ',
+              noSubject: '(inget ämne)',
+              fromLine: 'Från: ',
+              subjectLine: 'Ämne: ',
+              categoryLine: 'Kategori: ',
+              unknown: 'okänd'
+            }
+          }
+          const T = STRINGS[(process.env.LOCALE || 'en').toLowerCase()] || STRINGS.en
+
+          const buildEmail = ({ orgName = '', heading = '', paragraphs = [], ctaUrl, ctaLabel = T.ctaOpen }) => {
+            const paras = paragraphs.filter((p) => p != null && String(p).length > 0)
+            const paraHtml = paras
+              .map((p) => '<p style="margin:0 0 14px;color:#1f2430;font-size:15px;line-height:1.55">' + escapeHtml(p) + '</p>')
+              .join('')
+            const headingHtml = heading
+              ? '<h1 style="margin:0 0 16px;color:#1f2430;font-size:19px;font-weight:600">' + escapeHtml(heading) + '</h1>'
+              : ''
+            const ctaHtml = ctaUrl
+              ? '<p style="margin:22px 0 4px"><a href="' + escapeHtml(ctaUrl) + '" style="display:inline-block;background:#e0a32e;color:#1f2430;text-decoration:none;font-weight:600;padding:11px 22px;border-radius:8px;font-size:15px">' + escapeHtml(ctaLabel) + '</a></p>'
+              : ''
+            const html =
+              '<!doctype html><html><body style="margin:0;background:#f2f3f5;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">' +
+              '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e6e7ea">' +
+              '<tr><td style="background:#1f2430;padding:18px 28px"><span style="color:#e0a32e;font-size:16px;font-weight:700;letter-spacing:.3px">' + escapeHtml(orgName) + '</span></td></tr>' +
+              '<tr><td style="padding:26px 28px">' + headingHtml + paraHtml + ctaHtml + '</td></tr>' +
+              '<tr><td style="padding:16px 28px;border-top:1px solid #eceef1"><span style="color:#8a909c;font-size:12px">' + T.automatedFrom + escapeHtml(orgName) + '.</span></td></tr>' +
+              '</table></body></html>'
+            const textParts = []
+            if (heading) textParts.push(heading)
+            for (const p of paras) textParts.push(p)
+            if (ctaUrl) textParts.push(ctaLabel + ': ' + ctaUrl)
+            return { html, text: textParts.join('\n\n') }
+          }
+
+          // Every active superadmin + active scoped admins covering the category,
+          // deduped by email. Admins with notifyNewIssue===false opt out (default
+          // on). Mirrors aws/services/inbox/src/notify.js.
+          const notifyRecipients = (admins, category) => {
+            const out = []
+            const seen = new Set()
+            for (const a of admins || []) {
+              if (!a || a.active === false) continue
+              if (a.notifyNewIssue === false) continue
+              const email = String(a.email || '').toLowerCase()
+              if (!email) continue
+              const covers =
+                a.role === 'superadmin' ||
+                (Array.isArray(a.categories) && a.categories.includes(category))
+              if (!covers || seen.has(email)) continue
+              seen.add(email)
+              out.push(email)
+            }
+            return out
+          }
+
+          const listAdmins = async (org) => {
+            const rows = []
+            try {
+              let lastKey
+              do {
+                const res = await ddb.send(
+                  new QueryCommand({
+                    TableName: TABLE,
+                    KeyConditionExpression: '#pk = :pk',
+                    ExpressionAttributeNames: { '#pk': 'pk' },
+                    ExpressionAttributeValues: { ':pk': { S: org + ':admin' } },
+                    ...(lastKey ? { ExclusiveStartKey: lastKey } : {})
+                  })
+                )
+                for (const it of res.Items || []) {
+                  rows.push({
+                    email: it.email && it.email.S,
+                    role: it.role && it.role.S,
+                    active: it.active ? it.active.BOOL !== false : true,
+                    notifyNewIssue: it.notifyNewIssue ? it.notifyNewIssue.BOOL !== false : true,
+                    categories: ((it.categories && it.categories.L) || []).map((c) => c.S)
+                  })
+                }
+                lastKey = res.LastEvaluatedKey
+              } while (lastKey)
+            } catch (e) {
+              console.error('admin lookup failed', org, e.message)
+            }
+            return rows
+          }
+
+          // Email the responsible admins about an inbound issue/reply, one
+          // themed mail each. Best-effort: a send failure never fails ingest.
+          const notifyAdmins = async ({ org, orgName, category, from, subject, rootId, isReply }) => {
+            if (!SENDER) return
+            const admins = await listAdmins(org)
+            const recipients = notifyRecipients(admins, category)
+            if (!recipients.length) return
+            const heading = isReply ? T.newReplyHeading : T.newIssueHeading
+            const subjectLine =
+              (isReply ? T.newReplySubject : T.newIssueSubject) + (subject || T.noSubject)
+            // Hash route: the web app serves message deep-links at /#/m/:id.
+            const ctaUrl = WEB_BASE_URL && rootId ? WEB_BASE_URL + '/#/m/' + rootId : undefined
+            const { html, text } = buildEmail({
+              orgName,
+              heading,
+              paragraphs: [
+                T.categoryLine + category,
+                T.fromLine + (from || T.unknown),
+                subject ? T.subjectLine + subject : null
+              ].filter(Boolean),
+              ctaUrl,
+              ctaLabel: T.ctaOpenIssue
+            })
+            for (const to of recipients) {
+              try {
+                await ses.send(
+                  new SendEmailCommand({
+                    Source: senderSource(),
+                    Destination: { ToAddresses: [to] },
+                    Message: {
+                      Subject: { Charset: 'UTF-8', Data: subjectLine },
+                      Body: {
+                        Html: { Charset: 'UTF-8', Data: html },
+                        Text: { Charset: 'UTF-8', Data: text }
+                      }
+                    }
+                  })
+                )
+              } catch (e) {
+                console.error('notify send failed', to, e.message)
+              }
+            }
+          }
+
+          const splitAddress = (raw) => {
+            if (typeof raw !== 'string' || !raw) return { local: null, domain: null }
+            const angle = raw.match(/<([^>]+)>/)
+            const addr = (angle ? angle[1] : raw).trim().toLowerCase()
+            const at = addr.lastIndexOf('@')
+            if (at <= 0 || at === addr.length - 1) return { local: null, domain: null }
+            return { local: addr.slice(0, at), domain: addr.slice(at + 1) }
+          }
+
+          // Resolve the org from a registered tenant row ONLY. No fallback:
+          // mail for an unknown domain is skipped (not saved under a junk org).
+          // The ALL:tenant rows are the org allowlist.
+          const resolveTenant = async (domain) => {
+            const norm = String(domain || '').trim().toLowerCase()
+            if (!norm) return null
+            try {
+              const res = await ddb.send(
+                new GetItemCommand({
+                  TableName: TABLE,
+                  Key: { pk: { S: 'ALL:tenant' }, sk: { S: norm } }
+                })
+              )
+              if (res.Item && res.Item.org && res.Item.org.S) {
+                const org = res.Item.org.S
+                const name = (res.Item.name && res.Item.name.S) || org
+                return { org, name }
+              }
+            } catch (e) {
+              console.error('tenant lookup failed', norm, e.message)
+            }
+            return null
+          }
+
+          // Message-ID tokens referenced by a reply (In-Reply-To + References).
+          const referencedIds = (headers) => {
+            const ids = []
+            for (const hd of headers || []) {
+              const n = (hd.name || '').toLowerCase()
+              if (n === 'in-reply-to' || n === 'references') {
+                for (const t of String(hd.value || '').match(/<[^>]+>/g) || []) {
+                  ids.push(t)
+                }
+              }
+            }
+            return [...new Set(ids)]
+          }
+
+          // Find the existing thread a reply belongs to: scan the org's messages
+          // for one whose stored mailMessageId is referenced by the incoming mail.
+          const findThread = async (org, refIds) => {
+            if (!refIds.length) return null
+            try {
+              let lastKey
+              do {
+                const res = await ddb.send(
+                  new QueryCommand({
+                    TableName: TABLE,
+                    KeyConditionExpression: '#pk = :pk',
+                    ExpressionAttributeNames: { '#pk': 'pk' },
+                    ExpressionAttributeValues: { ':pk': { S: org + ':message' } },
+                    ...(lastKey ? { ExclusiveStartKey: lastKey } : {})
+                  })
+                )
+                for (const it of res.Items || []) {
+                  const mid = it.mailMessageId && it.mailMessageId.S
+                  if (mid && refIds.includes(mid)) {
+                    return {
+                      threadId: (it.threadId && it.threadId.S) || it.messageId.S,
+                      messageId: it.messageId.S
+                    }
+                  }
+                }
+                lastKey = res.LastEvaluatedKey
+              } while (lastKey)
+            } catch (e) {
+              console.error('thread lookup failed', e.message)
+            }
+            return null
+          }
+
+          // A new reply reopens a finished thread (state -> open) and bumps it to
+          // the top of the list (lastActivityAt + gsi1sk).
+          const reopenThread = async (org, rootId, ts) => {
+            try {
+              await ddb.send(
+                new UpdateItemCommand({
+                  TableName: TABLE,
+                  Key: { pk: { S: org + ':message' }, sk: { S: rootId } },
+                  UpdateExpression: 'SET #s = :open, lastActivityAt = :t, gsi1sk = :g',
+                  ExpressionAttributeNames: { '#s': 'state' },
+                  ExpressionAttributeValues: {
+                    ':open': { S: 'open' },
+                    ':t': { S: ts },
+                    ':g': { S: ts + '#' + rootId }
+                  }
+                })
+              )
+            } catch (e) {
+              console.error('reopen failed', rootId, e.message)
+            }
+          }
+
+          const putMessage = async (org, m) => {
+            const item = {
+              pk: { S: org + ':message' },
+              sk: { S: m.messageId },
+              gsi1pk: { S: org + ':message:inbox' },
+              gsi1sk: { S: m.receivedAt + '#' + m.messageId },
+              messageId: { S: m.messageId },
+              threadId: { S: m.threadId || m.messageId },
+              lastActivityAt: { S: m.receivedAt },
+              category: { S: m.category },
+              from: { S: m.from },
+              to: { L: m.to.map((t) => ({ S: t })) },
+              subject: { S: m.subject },
+              receivedAt: { S: m.receivedAt },
+              status: { S: 'unread' },
+              state: { S: 'open' },
+              direction: { S: 'inbound' },
+              box: { S: 'inbox' },
+              s3Bucket: { S: m.s3Bucket },
+              s3Key: { S: m.s3Key }
+            }
+            if (m.mailMessageId) item.mailMessageId = { S: m.mailMessageId }
+            if (m.inReplyTo) item.inReplyTo = { S: m.inReplyTo }
+            await ddb.send(new PutItemCommand({ TableName: TABLE, Item: item }))
+          }
+
+          exports.handler = async (event) => {
+            for (const r of event.Records || []) {
+              const mail = r.ses && r.ses.mail
+              if (!mail) continue
+              const h = mail.commonHeaders || {}
+              const envelope =
+                (r.ses.receipt && r.ses.receipt.recipients) || mail.destination || []
+              // Original recipient, preserved in the To: header when mail was forwarded.
+              const toHeader = (h.to && h.to[0]) || envelope[0] || ''
+              const { local, domain } = splitAddress(toHeader)
+              const category = local || 'unknown'
+              const from = (h.from && h.from.join(', ')) || mail.source
+              const receivedAt = mail.timestamp || new Date().toISOString()
+              const s3Key = PREFIX + mail.messageId
+              const tenant = await resolveTenant(domain)
+              const org = tenant ? tenant.org : null
+
+              if (org) {
+                // Thread replies via In-Reply-To / References → existing message.
+                const refs = referencedIds(mail.headers)
+                const parent = await findThread(org, refs)
+                try {
+                  await putMessage(org, {
+                    messageId: mail.messageId,
+                    category,
+                    from: from || '',
+                    to: h.to && h.to.length ? h.to : envelope,
+                    subject: h.subject || '',
+                    receivedAt,
+                    s3Bucket: process.env.BUCKET,
+                    s3Key,
+                    mailMessageId: h.messageId || null,
+                    threadId: parent ? parent.threadId : null,
+                    inReplyTo: parent ? parent.messageId : null
+                  })
+                  // Reply to a finished thread reopens it + bumps it to the top.
+                  if (parent) await reopenThread(org, parent.threadId, receivedAt)
+                  // Notify the responsible admins (new issue or inbound reply).
+                  await notifyAdmins({
+                    org,
+                    orgName: tenant.name,
+                    category,
+                    from,
+                    subject: h.subject || '',
+                    rootId: parent ? parent.threadId : mail.messageId,
+                    isReply: !!parent
+                  })
+                } catch (e) {
+                  console.error('put message failed', mail.messageId, e.message)
+                }
+              } else {
+                console.error('no tenant resolved for', toHeader)
+              }
+
+              console.log(
+                JSON.stringify({
+                  msg: 'inbound-email',
+                  org,
+                  category,
+                  from,
+                  to: h.to || envelope,
+                  subject: h.subject,
+                  messageId: mail.messageId,
+                  s3Key
+                })
+              )
+            }
+            return { ok: true }
+          }
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectPrefix
+        - Key: Environment
+          Value: !Ref Environment
+
+  # SES invokes this function directly, so the grant lives with the function.
+  # The receipt rule's stack cannot create it - SES validates the permission at
+  # rule-creation time, so it has to exist first.
+  ParseLambdaSesPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt ParseLambda.Arn
+      Action: lambda:InvokeFunction
+      Principal: ses.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+Outputs:
+  ParseLambdaName:
+    Value: !Ref ParseLambda
+  ParseLambdaArn:
+    Value: !GetAtt ParseLambda.Arn
+  LogGroupName:
+    Value: !Ref ParseLambdaLogGroup

@@ -1,0 +1,13 @@
+{
+  "name": "acme-inbox-presignup",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run test/unit"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "3.658.1",
+    "vitest": "2.1.4"
+  }
+}

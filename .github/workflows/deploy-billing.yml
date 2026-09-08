@@ -1,0 +1,33 @@
+name: Deploy Billing
+
+# Bootstrap only. Budgets live in us-east-1 whatever the profile says.
+#
+# Thin caller: the logic lives in _deploy.yml so the seven stack workflows
+# cannot drift apart. Account and region come from the deployment profile.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment
+        required: true
+        default: dev
+        type: choice
+        options: [dev, www]
+      profile:
+        description: Deployment profile (blank uses the DEPLOY_PROFILE variable)
+        required: false
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      stack: billing
+      environment: ${{ inputs.environment || 'dev' }}
+      profile: ${{ inputs.profile }}
+    secrets: inherit

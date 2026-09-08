@@ -1,0 +1,102 @@
+name: Validate
+
+# Runs on every push and PR. No AWS credentials: templates are checked with
+# cfn-lint rather than the CloudFormation API, so a fork or an untrusted PR
+# cannot reach the account.
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+jobs:
+  templates:
+    name: Templates and profiles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Lint CloudFormation
+        run: |
+          pip install --quiet cfn-lint
+          # -- is required: --region takes a list, so without it cfn-lint
+          # swallows the file paths as region names.
+
+          # billing and certificates are ALWAYS us-east-1, whatever the
+          # profile says - Budgets and CloudFront certificates live only there.
+          cfn-lint --region us-east-1 -- \
+            aws/billing/template.yml aws/certificates/template.yml
+
+          # Everything else deploys into each profile's own region, so lint it
+          # against that region's spec. A resource unavailable in a profile's
+          # region is otherwise missed. Distinct regions only, since cfn-lint
+          # is slow and profiles often share one.
+          # A fork may carry no committed profile at all (its own lives in the
+          # DEPLOY_PROFILE_JSON variable), so an empty directory is not a failure.
+          ls deployments/*.json >/dev/null 2>&1 || { echo "  no committed profiles"; exit 0; }
+          for f in deployments/*.json; do
+            node scripts/profile.mjs "$(basename "$f" .json)" --region
+          done | sort -u | while read -r region; do
+            echo "linting regional templates for $region"
+            cfn-lint --region "$region" -- \
+              aws/account/template.yml aws/shared/template.yml \
+              aws/services/*/template.yml aws/web/*/template.yml
+          done
+
+      - name: Every committed profile is valid and expands
+        run: |
+          # Explicit glob, not `test/`: since Node 22 the argument is a file
+          # path or pattern, so a bare directory is loaded as a module and
+          # throws "Cannot find module".
+          node --test test/*.test.mjs
+          # A fork may carry no committed profile at all (its own lives in the
+          # DEPLOY_PROFILE_JSON variable), so an empty directory is not a failure.
+          ls deployments/*.json >/dev/null 2>&1 || { echo "  no committed profiles"; exit 0; }
+          for f in deployments/*.json; do
+            name=$(basename "$f" .json)
+            node scripts/profile.mjs "$name" --check
+            for stack in $(node scripts/profile.mjs "$name" --stacks); do
+              node scripts/profile.mjs "$name" "$stack" > /dev/null
+            done
+            echo "  $name expands for every stack"
+          done
+
+  service:
+    name: Inbox service
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: aws/services/inbox
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci
+      - run: (cd pretoken && npm ci) && (cd presignup && npm ci)
+      - run: npm run lint
+      - run: npm test
+      - run: npm run test:integration
+      - run: (cd pretoken && npm test) && (cd presignup && npm test)
+      - run: npm run package
+
+  web:
+    name: Inbox web
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: aws/web/inbox
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: yarn install --frozen-lockfile
+      - run: yarn lint
+      - run: yarn test

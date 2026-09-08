@@ -1,0 +1,676 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Inbox API service (multi-tenant shared email inbox, single-table).
+
+Parameters:
+  ProjectPrefix:
+    Type: String
+    Default: inbox
+  Environment:
+    Type: String
+    AllowedValues:
+      - dev
+      - www
+  SenderEmail:
+    Type: String
+    Description: SES verified From/Reply-To address for outbound replies.
+  SenderName:
+    Type: String
+    Description: Friendly From display name for Cognito emails (the one-time code).
+  NotifySenderName:
+    Type: String
+    Description: Friendly From display name shown on admin notification emails.
+  LogRetentionDays:
+    Type: Number
+    Default: 14
+  LambdaCodeS3Bucket:
+    Type: String
+    Description: Artifact bucket containing Lambda deployment packages.
+  LambdaCodeS3Key:
+    Type: String
+    Description: S3 key for the main API Lambda zip.
+  PretokenLambdaCodeS3Key:
+    Type: String
+    Description: S3 key for the pre-token-trigger Lambda zip.
+  PreSignUpLambdaCodeS3Key:
+    Type: String
+    Description: S3 key for the pre-sign-up-trigger Lambda zip (Google account linking).
+  SesSourceArn:
+    Type: String
+    Default: ""
+    Description: >-
+      ARN of the SES identity used to deliver Cognito emails (email one-time
+      codes). Empty falls back to Cognito's default sender (50 mails/day).
+  Locale:
+    Type: String
+    Default: en
+    AllowedValues: [en, sv]
+    Description: Language of customer-facing email this deployment sends.
+  WebAppUrl:
+    Type: String
+    Default: ""
+    Description: >-
+      Origin the web app is actually served from, no trailing slash. Empty
+      derives it from RootDomainName. Cognito rejects any redirect_uri it has
+      not been told about, so this must match what the browser really uses -
+      including a CloudFront *.cloudfront.net name when there is no domain.
+  ApiHostedZoneId:
+    Type: String
+    Default: ""
+    Description: >-
+      Route53 zone for the API custom domain. Empty skips the domain, its
+      certificate and its DNS record; the API is then reachable on its
+      execute-api endpoint. Never point this at a zone whose NS records are not
+      live - ACM validation then hangs for hours and rolls the stack back.
+  RootDomainName:
+    Type: String
+    Description: Root domain used to build the web Callback/Logout URLs.
+  GoogleClientId:
+    Type: String
+    Default: ""
+    Description: Google OAuth client id. Empty disables the Google IdP + Hosted UI login.
+  GoogleClientSecretSsmName:
+    Type: String
+    Default: ""
+    Description: Name of an SSM String parameter holding the Google OAuth client secret.
+  MailBucketName:
+    Type: String
+    Description: Name of the inbox-mail raw-MIME bucket (eu-west-1) the API reads from.
+
+Conditions:
+  HasGoogleClient: !Not [!Equals [!Ref GoogleClientId, ""]]
+  HasSesSource: !Not [!Equals [!Ref SesSourceArn, ""]]
+  IsWww: !Equals [!Ref Environment, "www"]
+  HasApiDomain: !Not [!Equals [!Ref ApiHostedZoneId, ""]]
+  HasWebAppUrl: !Not [!Equals [!Ref WebAppUrl, ""]]
+
+Resources:
+  # ---- DynamoDB ---------------------------------------------------------
+
+  InboxDataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${ProjectPrefix}-inbox-data-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+        - AttributeName: gsi1pk
+          AttributeType: S
+        - AttributeName: gsi1sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: gsi1
+          KeySchema:
+            - AttributeName: gsi1pk
+              KeyType: HASH
+            - AttributeName: gsi1sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectPrefix
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ---- Cognito (one pool, many tenants; org carried in claims) ----------
+
+  AdminUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "${ProjectPrefix}-inbox-admin-${Environment}"
+      # ESSENTIALS tier is required for choice-based (USER_AUTH) sign-in, i.e.
+      # the passwordless email one-time-code flow. Free under 10k MAU.
+      UserPoolTier: ESSENTIALS
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      Schema:
+        - Name: organizationId
+          AttributeDataType: String
+          Mutable: false
+          Required: false
+          DeveloperOnlyAttribute: false
+          StringAttributeConstraints:
+            MinLength: "1"
+            MaxLength: "64"
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          RequireUppercase: true
+        # Allow both classic password sign-in and passwordless email OTP as the
+        # first (and only) authentication factor.
+        SignInPolicy:
+          AllowedFirstAuthFactors:
+            - PASSWORD
+            - EMAIL_OTP
+      # When SesSourceArn is set, deliver Cognito emails (the OTP codes) through
+      # our own SES identity; otherwise Cognito's default sender is used.
+      EmailConfiguration: !If
+        - HasSesSource
+        - EmailSendingAccount: DEVELOPER
+          From: !Sub '"${SenderName}" <${SenderEmail}>'
+          SourceArn: !Ref SesSourceArn
+        - !Ref "AWS::NoValue"
+      LambdaConfig:
+        PreTokenGeneration: !GetAtt PreTokenLambda.Arn
+        # Links a first-time Google login to the existing native (email) user so
+        # both sign-in methods resolve to one account.
+        PreSignUp: !GetAtt PreSignUpLambda.Arn
+
+  AdminUserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub "${ProjectPrefix}-inbox-${Environment}"
+      UserPoolId: !Ref AdminUserPool
+
+  AdminUserPoolGoogleIdP:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Condition: HasGoogleClient
+    Properties:
+      UserPoolId: !Ref AdminUserPool
+      ProviderName: Google
+      ProviderType: Google
+      ProviderDetails:
+        client_id: !Ref GoogleClientId
+        # CloudFormation does not allow ssm-secure references here; use a plain
+        # SSM String parameter (read access is still IAM-gated).
+        client_secret: !Sub "{{resolve:ssm:${GoogleClientSecretSsmName}}}"
+        authorize_scopes: "openid email profile"
+      AttributeMapping:
+        email: email
+        given_name: given_name
+        family_name: family_name
+
+  AdminUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    # When GoogleClient first becomes set a second deploy may be needed (the IdP
+    # must exist before the client lists Google). We use !Ref on the IdP so CFN
+    # tracks that dependency when the condition is active.
+    Properties:
+      ClientName: !Sub "${ProjectPrefix}-inbox-admin-${Environment}"
+      UserPoolId: !Ref AdminUserPool
+      GenerateSecret: false
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - openid
+        - email
+        - profile
+      SupportedIdentityProviders: !If
+        - HasGoogleClient
+        - - COGNITO
+          - !Ref AdminUserPoolGoogleIdP
+        - - COGNITO
+      # FE domain pattern differs by env: dev = dev.inbox.{root}, www = inbox.{root}.
+      # Hash routing redirects OAuth back to the app root ("/"); the legacy
+      # "/logga-in" entries stay registered so an in-flight old build keeps working
+      # during rollout.
+      CallbackURLs: !If
+        - HasWebAppUrl
+        - - !Sub "${WebAppUrl}/"
+          - !Sub "${WebAppUrl}/logga-in"
+          - "http://localhost:5173/"
+          - "http://localhost:5173/logga-in"
+        - !If
+          - IsWww
+          - - !Sub "https://inbox.${RootDomainName}/"
+            - !Sub "https://inbox.${RootDomainName}/logga-in"
+            - "http://localhost:5173/"
+            - "http://localhost:5173/logga-in"
+          - - !Sub "https://${Environment}.inbox.${RootDomainName}/"
+            - !Sub "https://${Environment}.inbox.${RootDomainName}/logga-in"
+            - "http://localhost:5173/"
+            - "http://localhost:5173/logga-in"
+      LogoutURLs: !If
+        - HasWebAppUrl
+        - - !Sub "${WebAppUrl}/"
+          - "http://localhost:5173/"
+        - !If
+          - IsWww
+          - - !Sub "https://inbox.${RootDomainName}/"
+            - "http://localhost:5173/"
+          - - !Sub "https://${Environment}.inbox.${RootDomainName}/"
+            - "http://localhost:5173/"
+      ExplicitAuthFlows:
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
+        # Choice-based auth: enables the passwordless email-OTP login the web app
+        # drives directly via InitiateAuth/RespondToAuthChallenge.
+        - ALLOW_USER_AUTH
+      # Keep admins signed in for 30 days (the default, made explicit). Access/ID
+      # tokens stay at the 1 h default so org-membership claims refresh often; the
+      # web app silently refreshes them via the refresh token.
+      RefreshTokenValidity: 30
+
+  # ---- Pre-token Lambda -------------------------------------------------
+
+  PreTokenLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectPrefix}-inbox-pretoken-${Environment}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: Logs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ProjectPrefix}-inbox-pretoken-${Environment}:*"
+        - PolicyName: DataRead
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Resolves org membership via the email GSI + tenant names.
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt InboxDataTable.Arn
+                  - !Sub "${InboxDataTable.Arn}/index/gsi1"
+
+  PreTokenLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ProjectPrefix}-inbox-pretoken-${Environment}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  PreTokenLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: PreTokenLambdaLogGroup
+    Properties:
+      FunctionName: !Sub "${ProjectPrefix}-inbox-pretoken-${Environment}"
+      Runtime: nodejs22.x
+      Handler: index.handler
+      Role: !GetAtt PreTokenLambdaRole.Arn
+      MemorySize: 128
+      Timeout: 5
+      Code:
+        S3Bucket: !Ref LambdaCodeS3Bucket
+        S3Key: !Ref PretokenLambdaCodeS3Key
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref InboxDataTable
+
+  PreTokenLambdaCognitoPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref PreTokenLambda
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt AdminUserPool.Arn
+
+  # ---- Pre-sign-up Lambda (Google account linking) ----------------------
+
+  PreSignUpLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectPrefix}-inbox-presignup-${Environment}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: Logs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ProjectPrefix}-inbox-presignup-${Environment}:*"
+        - PolicyName: CognitoLink
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Find the native user by email and link the Google identity to it.
+              # Scoped to a constructed ARN (not !GetAtt) so the role does not
+              # depend on the pool — the pool already depends on this Lambda via
+              # its PreSignUp trigger, which would otherwise be a cycle.
+              - Effect: Allow
+                Action:
+                  - cognito-idp:ListUsers
+                  - cognito-idp:AdminLinkProviderForUser
+                Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/*"
+
+  PreSignUpLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ProjectPrefix}-inbox-presignup-${Environment}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  PreSignUpLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: PreSignUpLambdaLogGroup
+    Properties:
+      FunctionName: !Sub "${ProjectPrefix}-inbox-presignup-${Environment}"
+      Runtime: nodejs22.x
+      Handler: index.handler
+      Role: !GetAtt PreSignUpLambdaRole.Arn
+      MemorySize: 128
+      Timeout: 5
+      Code:
+        S3Bucket: !Ref LambdaCodeS3Bucket
+        S3Key: !Ref PreSignUpLambdaCodeS3Key
+
+  PreSignUpLambdaCognitoPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref PreSignUpLambda
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt AdminUserPool.Arn
+
+  # ---- API Gateway ------------------------------------------------------
+
+  InboxApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub "${ProjectPrefix}-inbox-${Environment}"
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowHeaders:
+          - Authorization
+          - Content-Type
+          - X-Org
+        AllowMethods:
+          - DELETE
+          - GET
+          - OPTIONS
+          - PATCH
+          - POST
+        AllowOrigins:
+          - "*"
+
+  InboxApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref InboxApi
+      StageName: "$default"
+      AutoDeploy: true
+
+  AdminAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties:
+      ApiId: !Ref InboxApi
+      AuthorizerType: JWT
+      IdentitySource:
+        - "$request.header.Authorization"
+      Name: !Sub "${ProjectPrefix}-inbox-admin-${Environment}"
+      JwtConfiguration:
+        Audience:
+          - !Ref AdminUserPoolClient
+        Issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${AdminUserPool}"
+
+  # ---- Main API Lambda --------------------------------------------------
+
+  InboxLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectPrefix}-inbox-lambda-${Environment}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: lambda.amazonaws.com
+      Policies:
+        - PolicyName: ServiceAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ProjectPrefix}-inbox-${Environment}:*"
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt InboxDataTable.Arn
+                  - !Sub "${InboxDataTable.Arn}/index/gsi1"
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${MailBucketName}/*"
+              # Big attachments are copied out of the raw MIME to their own
+              # short-lived object and served to the browser as a presigned URL.
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub "arn:aws:s3:::${MailBucketName}/attachments/*"
+              # Provision a native (email) Cognito user when a new admin is added
+              # so they can sign in with an email one-time code right away.
+              - Effect: Allow
+                Action:
+                  - cognito-idp:AdminCreateUser
+                  - cognito-idp:AdminGetUser
+                  - cognito-idp:AdminSetUserPassword
+                  - cognito-idp:AdminUpdateUserAttributes
+                Resource: !GetAtt AdminUserPool.Arn
+
+  InboxLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ProjectPrefix}-inbox-${Environment}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  InboxLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: InboxLambdaLogGroup
+    Properties:
+      FunctionName: !Sub "${ProjectPrefix}-inbox-${Environment}"
+      Runtime: nodejs22.x
+      Handler: index.handler
+      Role: !GetAtt InboxLambdaRole.Arn
+      # Opening a thread parses the raw MIME from S3 to list attachments; a
+      # 16 MB mail peaked at 245 MB of a 256 MB limit and took 9 s. More memory
+      # also buys proportionally more CPU and network, so cost stays flat.
+      MemorySize: 1024
+      Timeout: 15
+      Code:
+        S3Bucket: !Ref LambdaCodeS3Bucket
+        S3Key: !Ref LambdaCodeS3Key
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          TABLE_NAME: !Ref InboxDataTable
+          ADMIN_USER_POOL_ID: !Ref AdminUserPool
+          SENDER_EMAIL: !Ref SenderEmail
+          NOTIFY_SENDER_NAME: !Ref NotifySenderName
+          LOCALE: !Ref Locale
+          MAIL_BUCKET: !Ref MailBucketName
+          MAIL_BUCKET_REGION: !Ref AWS::Region
+          # Deep-link base for notification CTAs (e.g. /m/{rootId}). Mirrors the
+          # web app's hosted URL (inbox.<root> on www, <env>.inbox.<root> else).
+          WEB_BASE_URL: !If
+            - HasWebAppUrl
+            - !Ref WebAppUrl
+            - !If
+              - IsWww
+              - !Sub "https://inbox.${RootDomainName}"
+              - !Sub "https://${Environment}.inbox.${RootDomainName}"
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectPrefix
+        - Key: Environment
+          Value: !Ref Environment
+
+  InboxLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref InboxApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt InboxLambda.Arn
+      PayloadFormatVersion: "2.0"
+
+  InboxLambdaApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref InboxLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${InboxApi}/*/*/*"
+
+  # ---- Daily reminder sweep ---------------------------------------------
+  # Same Lambda as the API (the role already has Query + SES, and src/ is already
+  # in the zip) — index.js branches on the aws.events source. 05:00 UTC = 07:00
+  # Swedish summer time, 06:00 winter; close enough to "morning" either way.
+
+  NagSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${ProjectPrefix}-inbox-nag-${Environment}"
+      Description: Daily reminder about issues left open
+      ScheduleExpression: cron(0 5 * * ? *)
+      State: ENABLED
+      Targets:
+        - Id: InboxLambda
+          Arn: !GetAtt InboxLambda.Arn
+
+  NagSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref InboxLambda
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt NagSchedule.Arn
+
+  # ---- Routes (per-method proxies; OPTIONS handled by CORS) -------------
+
+  RouteAdminGet:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref InboxApi
+      RouteKey: "GET /admin/{proxy+}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref AdminAuthorizer
+      Target: !Sub "integrations/${InboxLambdaIntegration}"
+
+  RouteAdminPost:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref InboxApi
+      RouteKey: "POST /admin/{proxy+}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref AdminAuthorizer
+      Target: !Sub "integrations/${InboxLambdaIntegration}"
+
+  RouteAdminPatch:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref InboxApi
+      RouteKey: "PATCH /admin/{proxy+}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref AdminAuthorizer
+      Target: !Sub "integrations/${InboxLambdaIntegration}"
+
+  RouteAdminDelete:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref InboxApi
+      RouteKey: "DELETE /admin/{proxy+}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref AdminAuthorizer
+      Target: !Sub "integrations/${InboxLambdaIntegration}"
+
+  # ---- Custom domain (regional cert + DNS) ------------------------------
+
+  ApiCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Condition: HasApiDomain
+    Properties:
+      DomainName: !Sub "api-inbox-${Environment}.${RootDomainName}"
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Sub "api-inbox-${Environment}.${RootDomainName}"
+          HostedZoneId: !Ref ApiHostedZoneId
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectPrefix
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiCustomDomain:
+    Type: AWS::ApiGatewayV2::DomainName
+    Condition: HasApiDomain
+    Properties:
+      DomainName: !Sub "api-inbox-${Environment}.${RootDomainName}"
+      DomainNameConfigurations:
+        - CertificateArn: !Ref ApiCertificate
+          EndpointType: REGIONAL
+          SecurityPolicy: TLS_1_2
+
+  ApiMapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Condition: HasApiDomain
+    Properties:
+      ApiId: !Ref InboxApi
+      DomainName: !Ref ApiCustomDomain
+      Stage: !Ref InboxApiStage
+
+  ApiDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: HasApiDomain
+    Properties:
+      HostedZoneId: !Ref ApiHostedZoneId
+      Name: !Sub "api-inbox-${Environment}.${RootDomainName}."
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt ApiCustomDomain.RegionalDomainName
+        HostedZoneId: !GetAtt ApiCustomDomain.RegionalHostedZoneId
+        EvaluateTargetHealth: false
+
+Outputs:
+  InboxApiEndpoint:
+    Value: !GetAtt InboxApi.ApiEndpoint
+  ApiCustomDomain:
+    Condition: HasApiDomain
+    Value: !Ref ApiCustomDomain
+  AdminUserPoolId:
+    Value: !Ref AdminUserPool
+  AdminUserPoolClientId:
+    Value: !Ref AdminUserPoolClient
+  AdminUserPoolDomain:
+    Value: !Sub "${AdminUserPoolDomain}.auth.${AWS::Region}.amazoncognito.com"
+  InboxDataTableName:
+    Value: !Ref InboxDataTable

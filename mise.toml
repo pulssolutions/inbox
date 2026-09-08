@@ -1,0 +1,8 @@
+# Node version lives in .nvmrc, so one file serves mise, nvm and CI
+# (actions/setup-node reads it via node-version-file).
+[settings]
+idiomatic_version_file_enable_tools = ["node"]
+
+# No AWS_PROFILE or AWS_REGION here: both are per-deployment, and
+# scripts/deploy.mjs takes the region from the profile and refuses to
+# run against an account the profile does not name.

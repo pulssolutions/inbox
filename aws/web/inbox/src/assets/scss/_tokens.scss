@@ -1,0 +1,81 @@
+// Design tokens — ported from Claude Design handoff bundle (styles.css).
+// Mustard accent fixed for production. Light/dark via [data-theme] (mirrors
+// Bootstrap 5.3's [data-bs-theme]).
+
+:root,
+[data-theme='light'] {
+  --bg: #fafaf7;
+  --bg-2: #ffffff;
+  --bg-3: #f3f2ee;
+  --bg-elev: #ffffff;
+  --fg: #16161a;
+  --fg-2: #3c3c44;
+  --fg-3: #6b6b75;
+  --fg-4: #9a9aa3;
+  --border: #e6e5df;
+  --border-2: #d4d3cc;
+  --shadow-sm: 0 1px 2px rgba(20, 20, 30, 0.05);
+  --shadow: 0 4px 14px rgba(20, 20, 30, 0.06), 0 1px 2px rgba(20, 20, 30, 0.04);
+  --shadow-lg: 0 24px 60px -20px rgba(20, 20, 30, 0.18),
+    0 2px 6px rgba(20, 20, 30, 0.06);
+
+  --success: #198754;
+  --success-bg: #d1e7dd;
+  --success-fg: #0a3622;
+  --warning: #b67414;
+  --warning-bg: #fff3cd;
+  --warning-fg: #664d03;
+  --danger: #dc3545;
+  --danger-bg: #f8d7da;
+  --danger-fg: #58151c;
+  --info: #0d6efd;
+  --info-bg: #cfe2ff;
+  --info-fg: #052c65;
+  --muted-bg: #e9ecef;
+  --muted-fg: #495057;
+
+  // Mustard accent (fixed)
+  --accent: #c08b1c;
+  --accent-2: #a87614;
+  --accent-fg: #ffffff;
+  --accent-soft: #f6e6bf;
+  --accent-soft-fg: #3d2a05;
+}
+
+[data-theme='dark'] {
+  --bg: #0e0f12;
+  --bg-2: #15171c;
+  --bg-3: #1c1f25;
+  --bg-elev: #181a20;
+  --fg: #f4f4f5;
+  --fg-2: #d4d4d8;
+  --fg-3: #a1a1aa;
+  --fg-4: #71717a;
+  --border: #26282f;
+  --border-2: #353841;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 4px 14px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 24px 60px -20px rgba(0, 0, 0, 0.7),
+    0 2px 6px rgba(0, 0, 0, 0.4);
+
+  --success: #2eb872;
+  --success-bg: #0f2e21;
+  --success-fg: #75e0a8;
+  --warning: #e0a437;
+  --warning-bg: #2c2410;
+  --warning-fg: #f3c66b;
+  --danger: #f06b78;
+  --danger-bg: #2c1418;
+  --danger-fg: #ff9aa3;
+  --info: #4d8bff;
+  --info-bg: #0f1c33;
+  --info-fg: #8ab4ff;
+  --muted-bg: #23262d;
+  --muted-fg: #9aa0aa;
+
+  --accent: #e6b450;
+  --accent-2: #f0c46e;
+  --accent-fg: #1a1100;
+  --accent-soft: #2d2208;
+  --accent-soft-fg: #f3d999;
+}

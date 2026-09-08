@@ -1,0 +1,32 @@
+// Bootstrap 5.3 SCSS variable overrides — applied BEFORE @import "bootstrap".
+// Maps mustard accent + neutral palette onto Bootstrap's theming.
+
+$primary: #c08b1c;
+$secondary: #6b6b75;
+$success: #198754;
+$info: #0d6efd;
+$warning: #b67414;
+$danger: #dc3545;
+
+$body-bg: #fafaf7;
+$body-color: #16161a;
+$border-color: #e6e5df;
+
+$font-family-sans-serif: 'Manrope', system-ui, -apple-system, 'Segoe UI',
+  sans-serif;
+$headings-font-weight: 700;
+$headings-letter-spacing: -0.012em;
+
+$border-radius: 0.5rem;
+$border-radius-sm: 0.375rem;
+$border-radius-lg: 0.75rem;
+$border-radius-xl: 0.875rem;
+
+$enable-shadows: false;
+$enable-rounded: true;
+$enable-smooth-scroll: true;
+
+// Dark mode body palette
+$body-bg-dark: #0e0f12;
+$body-color-dark: #f4f4f5;
+$border-color-dark: #26282f;

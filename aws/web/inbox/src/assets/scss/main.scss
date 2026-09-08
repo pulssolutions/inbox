@@ -1,0 +1,20 @@
+@use 'tokens';
+@use 'bootstrap-overrides' as *;
+@use 'bootstrap/scss/bootstrap' with (
+  $primary: $primary,
+  $secondary: $secondary,
+  $success: $success,
+  $info: $info,
+  $warning: $warning,
+  $danger: $danger,
+  $body-bg: $body-bg,
+  $body-color: $body-color,
+  $border-color: $border-color,
+  $font-family-sans-serif: $font-family-sans-serif,
+  $border-radius: $border-radius,
+  $border-radius-sm: $border-radius-sm,
+  $border-radius-lg: $border-radius-lg,
+  $enable-shadows: $enable-shadows,
+  $enable-rounded: $enable-rounded
+);
+@use 'components';

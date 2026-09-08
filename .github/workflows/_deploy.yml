@@ -1,0 +1,95 @@
+name: _deploy
+
+# Shared engine for the per-stack deploy workflows. Not run directly.
+#
+# Each stack gets its own workflow with its own path filter, but the logic lives
+# here once instead of being copied into seven files that then drift apart.
+#
+# Which AWS account is deployed to comes from the deployment profile in
+# deployments/, because a profile IS an account. The role is taken from the
+# AWS_DEPLOY_ROLE_ARN repository variable when set, and otherwise derived from
+# the profile - so a deployment works either with the variable configured or
+# with nothing but its profile.
+
+on:
+  workflow_call:
+    inputs:
+      stack:
+        description: Stack to deploy (account, billing, shared, inbox, inbox-parse, inbox-mail, web)
+        required: true
+        type: string
+      environment:
+        description: Environment
+        required: false
+        default: dev
+        type: string
+      profile:
+        description: Deployment profile; defaults to the DEPLOY_PROFILE variable
+        required: false
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Resolve profile and role
+        id: cfg
+        env:
+          # A fork sets this repository variable instead of committing a
+          # profile, so it has no tracked configuration to conflict on when it
+          # merges from upstream. Empty here means the committed file is used.
+          DEPLOY_PROFILE_JSON: ${{ vars.DEPLOY_PROFILE_JSON }}
+        run: |
+          PROFILE="${{ inputs.profile }}"
+          [ -n "$PROFILE" ] || PROFILE="${{ vars.DEPLOY_PROFILE }}"
+          if [ -z "$PROFILE" ]; then
+            echo "Set the DEPLOY_PROFILE repository variable to name your deployment." >&2
+            exit 1
+          fi
+          node scripts/profile.mjs "$PROFILE" --check
+
+          # The repository variable wins when set; otherwise the role name is
+          # derived from the profile, which is where it comes from by default.
+          ROLE="${{ vars.AWS_DEPLOY_ROLE_ARN }}"
+          [ -n "$ROLE" ] || ROLE=$(node scripts/profile.mjs "$PROFILE" --role)
+
+          echo "profile=$PROFILE"           >> "$GITHUB_OUTPUT"
+          echo "role=$ROLE"                 >> "$GITHUB_OUTPUT"
+          echo "region=$(node scripts/profile.mjs "$PROFILE" --region)" >> "$GITHUB_OUTPUT"
+          echo "Deploying ${{ inputs.stack }} for profile $PROFILE (${{ inputs.environment }})"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ steps.cfg.outputs.region }}
+          role-to-assume: ${{ steps.cfg.outputs.role }}
+
+      # Only the service stack ships built code, so only it needs the suites
+      # run here; everything else is validated by validate.yml on the PR.
+      - name: Install and test the service
+        if: inputs.stack == 'inbox'
+        working-directory: aws/services/inbox
+        run: |
+          npm ci
+          (cd pretoken && npm ci) && (cd presignup && npm ci)
+          npm run lint
+          npm test
+          npm run test:integration
+          (cd pretoken && npm test) && (cd presignup && npm test)
+
+      - name: Deploy
+        env:
+          DEPLOY_PROFILE_JSON: ${{ vars.DEPLOY_PROFILE_JSON }}
+        run: |
+          node scripts/deploy.mjs "${{ steps.cfg.outputs.profile }}" \
+            --env "${{ inputs.environment }}" \
+            --only "${{ inputs.stack }}"

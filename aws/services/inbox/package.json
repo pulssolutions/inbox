@@ -1,0 +1,33 @@
+{
+  "name": "inbox-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run test/unit",
+    "test:watch": "vitest test/unit",
+    "test:integration": "vitest run test/integration",
+    "test:all": "vitest run",
+    "lint": "eslint src/ test/",
+    "format": "prettier --write src/ test/",
+    "package": "node scripts/package.mjs",
+    "dev": "node scripts/dev-server.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "3.658.1",
+    "@aws-sdk/client-dynamodb": "3.658.1",
+    "@aws-sdk/client-s3": "3.658.1",
+    "@aws-sdk/client-ses": "3.658.1",
+    "@aws-sdk/lib-dynamodb": "3.658.1",
+    "@aws-sdk/s3-request-presigner": "^3.658.1",
+    "mailparser": "3.7.1",
+    "pino": "9.5.0"
+  },
+  "devDependencies": {
+    "eslint": "9.13.0",
+    "express": "4.21.1",
+    "globals": "15.11.0",
+    "prettier": "3.3.3",
+    "vitest": "2.1.4"
+  }
+}

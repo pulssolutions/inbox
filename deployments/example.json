@@ -1,0 +1,55 @@
+{
+  "$comment": "Template deployment profile. Copy it, rename it after your deployment, and fill in your own values - or supply the whole thing as the DEPLOY_PROFILE_JSON repository variable and commit nothing. See docs/deployment.md.",
+
+  "name": "example",
+  "accountId": "111122223333",
+  "region": "eu-north-1",
+  "mailDomain": "example.com",
+
+  "mail": {
+    "$comment": "Route53 zone for mailDomain IN THIS ACCOUNT. Empty means the domain is hosted elsewhere, so MX, DKIM and the SES identity are a manual bootstrap. Set it and the stack owns all three.",
+    "hostedZoneId": ""
+  },
+  "notificationEmail": "ops@example.com",
+
+  "org": {
+    "slug": "example",
+    "name": "Example Company"
+  },
+
+  "senderLocalPart": "support",
+  "locale": "en",
+
+  "brand": {
+    "short": "Example",
+    "tagline": "Inbox",
+    "$comment": "Optional. Paths relative to the repo root, copied into the web build at deploy time. Omit both, as here, and the app uses its own neutral mark."
+  },
+
+  "web": {
+    "$comment": "Optional. Omit the whole block to be served on the CloudFront domain instead. The zone must be one this account can write to.",
+    "domain": "inbox.example.com",
+    "hostedZoneId": "Z0123456789ABCDEFGHIJ"
+  },
+
+  "auth": {
+    "emailOtp": true,
+    "google": {
+      "clientId": "",
+      "secretSsm": ""
+    }
+  },
+
+  "ops": {
+    "logRetentionDays": 14,
+    "mailRetentionDays": 1825,
+    "monthlyBudget": 10
+  },
+
+  "github": {
+    "owner": "pulssolutions",
+    "repo": "inbox"
+  },
+
+  "environments": ["dev"]
+}

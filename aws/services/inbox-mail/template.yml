@@ -1,0 +1,217 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Inbound email receiver. An SES receipt rule stores raw MIME to S3, then
+  invokes the parse Lambda. One deployment per AWS account: only one receipt
+  rule set can be ACTIVE per account per region.
+
+# NOT owned by this stack, and deliberately so:
+#
+#   DNS (MX + DKIM) and the SES domain identity - UNLESS MailHostedZoneId is
+#   set. A mail domain's records live wherever that domain is hosted, which is
+#   often not Route53; then verifying the identity needs records only the domain
+#   owner can publish, so both are a manual bootstrap (see README). When the zone
+#   IS in Route53 in this account, the stack does the whole job instead.
+#
+#   Activating the rule set - CloudFormation has no resource for it. A stack
+#   that deploys clean and still drops every message is almost always this.
+#   The deploy script runs it; the ActivateCommand output repeats it.
+#
+
+Parameters:
+  ProjectPrefix:
+    Type: String
+    Default: inbox
+  Environment:
+    Type: String
+    AllowedValues:
+      - dev
+      - www
+  RecipientDomain:
+    Type: String
+    Description: >-
+      Mail to any address at this domain is accepted. The recipient's local part
+      becomes the ticket's category, so no per-queue configuration exists -
+      adding billing@ is an email alias, not a deploy.
+  InboundObjectExpiryDays:
+    Type: Number
+    Default: 1825
+    # The raw MIME is the ONLY copy of message bodies and attachments — the
+    # inbox re-parses it on every read and stores neither. Expiry therefore
+    # empties old threads in the app, so this is a retention policy, not a
+    # cleanup knob. 5 years; a few MB of S3 costs nothing next to losing an
+    # offer or a protocol someone needs later.
+    Description: Days to keep raw inbound MIME in S3 before lifecycle deletion.
+  MailHostedZoneId:
+    Type: String
+    Default: ""
+    Description: >-
+      Route53 zone for RecipientDomain, in this account. Empty means the domain
+      is hosted elsewhere: publish the MX and DKIM records and verify the SES
+      identity by hand, and this stack touches neither. Set it and the stack
+      owns the identity plus the MX and three DKIM records.
+
+      Careful: those resources then share this stack's lifecycle, so deleting
+      the stack stops mail for the domain until it is recreated. Setting this on
+      an account where the identity already exists fails the stack - SES has no
+      "create if absent".
+  ParseFunctionArn:
+    Type: String
+    Default: ""
+    Description: >-
+      Parse Lambda invoked after the message is stored. Empty leaves the rule
+      storing to S3 only, which is a useful first deploy - mail is captured
+      before anything can drop it. The function's own stack must already grant
+      ses.amazonaws.com lambda:InvokeFunction, because SES validates every
+      action's permissions at the moment the rule is created.
+
+Conditions:
+  HasParseFunction: !Not [!Equals [!Ref ParseFunctionArn, ""]]
+  ManagesMailDns: !Not [!Equals [!Ref MailHostedZoneId, ""]]
+
+Resources:
+  # ---- SES identity + DNS, only when the zone is ours --------------------
+  # DkimAttributes.SigningEnabled makes the domain verify via the DKIM CNAMEs
+  # below; a DKIM-verified domain identity is sufficient for SES receiving.
+  MailDomainIdentity:
+    Type: AWS::SES::EmailIdentity
+    Condition: ManagesMailDns
+    Properties:
+      EmailIdentity: !Ref RecipientDomain
+      DkimAttributes:
+        SigningEnabled: true
+
+  MailMxRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: ManagesMailDns
+    Properties:
+      HostedZoneId: !Ref MailHostedZoneId
+      Name: !Sub "${RecipientDomain}."
+      Type: MX
+      TTL: "300"
+      ResourceRecords:
+        - !Sub "10 inbound-smtp.${AWS::Region}.amazonaws.com"
+
+  MailDkim1:
+    Type: AWS::Route53::RecordSet
+    Condition: ManagesMailDns
+    Properties:
+      HostedZoneId: !Ref MailHostedZoneId
+      Name: !GetAtt MailDomainIdentity.DkimDNSTokenName1
+      Type: CNAME
+      TTL: "300"
+      ResourceRecords:
+        - !GetAtt MailDomainIdentity.DkimDNSTokenValue1
+
+  MailDkim2:
+    Type: AWS::Route53::RecordSet
+    Condition: ManagesMailDns
+    Properties:
+      HostedZoneId: !Ref MailHostedZoneId
+      Name: !GetAtt MailDomainIdentity.DkimDNSTokenName2
+      Type: CNAME
+      TTL: "300"
+      ResourceRecords:
+        - !GetAtt MailDomainIdentity.DkimDNSTokenValue2
+
+  MailDkim3:
+    Type: AWS::Route53::RecordSet
+    Condition: ManagesMailDns
+    Properties:
+      HostedZoneId: !Ref MailHostedZoneId
+      Name: !GetAtt MailDomainIdentity.DkimDNSTokenName3
+      Type: CNAME
+      TTL: "300"
+      ResourceRecords:
+        - !GetAtt MailDomainIdentity.DkimDNSTokenValue3
+
+  # ---- inbound storage ---------------------------------------------------
+  InboundBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${ProjectPrefix}-inbox-mail-${Environment}-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireRawEmail
+            Status: Enabled
+            Prefix: inbound/
+            ExpirationInDays: !Ref InboundObjectExpiryDays
+          # Attachments the API copies out of the MIME so the browser can fetch
+          # them by presigned URL. The URL lives 15 minutes; the copy needn't
+          # outlast the day.
+          - Id: ExpireExtractedAttachments
+            Status: Enabled
+            Prefix: attachments/
+            ExpirationInDays: 1
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectPrefix
+        - Key: Environment
+          Value: !Ref Environment
+
+  # SES must be able to write received mail into the bucket. Scope to this
+  # account; SourceArn of the rule would create a dependency cycle (rule -> bucket).
+  InboundBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref InboundBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowSESPuts
+            Effect: Allow
+            Principal:
+              Service: ses.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub "${InboundBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+
+  InboundRuleSet:
+    Type: AWS::SES::ReceiptRuleSet
+    Properties:
+      RuleSetName: !Sub "${ProjectPrefix}-inbox-${Environment}"
+
+  InboundRule:
+    Type: AWS::SES::ReceiptRule
+    # SES checks the S3 grant when the rule is created, not when mail arrives.
+    DependsOn: InboundBucketPolicy
+    Properties:
+      RuleSetName: !Ref InboundRuleSet
+      Rule:
+        Name: store-and-parse
+        Enabled: true
+        ScanEnabled: true
+        Recipients:
+          - !Ref RecipientDomain
+        # S3 first: the Lambda event carries headers only, and parse fetches the
+        # body from S3 by message id, so it has to already be there.
+        Actions:
+          - S3Action:
+              BucketName: !Ref InboundBucket
+              ObjectKeyPrefix: "inbound/"
+          - !If
+            - HasParseFunction
+            - LambdaAction:
+                FunctionArn: !Ref ParseFunctionArn
+                InvocationType: Event
+            - !Ref AWS::NoValue
+
+Outputs:
+  MailDnsManagedHere:
+    Description: Whether this stack owns the SES identity and the MX/DKIM records.
+    Value: !If [ManagesMailDns, "yes", "no - publish them yourself, see README"]
+  InboundBucketName:
+    Value: !Ref InboundBucket
+    Export:
+      Name: !Sub "${ProjectPrefix}-${Environment}-inbox-mail-bucket"
+  ReceiptRuleSetName:
+    Value: !Ref InboundRuleSet
+  ActivateCommand:
+    Description: CloudFormation cannot activate a rule set. Without this, no mail is received.
+    Value: !Sub "aws ses set-active-receipt-rule-set --region ${AWS::Region} --rule-set-name ${ProjectPrefix}-inbox-${Environment}"
