@@ -61,7 +61,7 @@ and `account` creates the very role CI assumes - its first run has to be local.
 | Variable | Effect |
 | --- | --- |
 | `DEPLOY_PROFILE_JSON` | The whole profile as JSON. Wins over any committed file. |
-| `DEPLOY_PROFILE` | Which committed profile a push deploys. Required unless `DEPLOY_PROFILE_JSON` is set. |
+| `DEPLOY_PROFILE` | Which committed profile a push deploys. Not needed when `DEPLOY_PROFILE_JSON` is set - that names itself. |
 | `AWS_DEPLOY_ROLE_ARN` | Role to assume. Optional - derived from the profile otherwise. |
 
 A dispatch run can override profile and environment per run.

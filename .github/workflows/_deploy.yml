@@ -34,6 +34,10 @@ permissions:
 
 jobs:
   deploy:
+    # Upstream is a repository to copy, not to deploy from: with no profile
+    # configured there is nothing to deploy TO. Skip, rather than fail red on
+    # every push to a repo that is working exactly as intended.
+    if: vars.DEPLOY_PROFILE != '' || vars.DEPLOY_PROFILE_JSON != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,8 +55,14 @@ jobs:
         run: |
           PROFILE="${{ inputs.profile }}"
           [ -n "$PROFILE" ] || PROFILE="${{ vars.DEPLOY_PROFILE }}"
+          # DEPLOY_PROFILE_JSON already names itself, so a deployment that
+          # configures itself entirely through that one variable needs no
+          # second variable repeating the name.
+          if [ -z "$PROFILE" ] && [ -n "$DEPLOY_PROFILE_JSON" ]; then
+            PROFILE=$(node -e 'process.stdout.write(JSON.parse(process.env.DEPLOY_PROFILE_JSON).name || "")')
+          fi
           if [ -z "$PROFILE" ]; then
-            echo "Set the DEPLOY_PROFILE repository variable to name your deployment." >&2
+            echo "Set DEPLOY_PROFILE (or DEPLOY_PROFILE_JSON) to name your deployment." >&2
             exit 1
           fi
           node scripts/profile.mjs "$PROFILE" --check
