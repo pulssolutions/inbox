@@ -395,10 +395,16 @@ Resources:
                 new UpdateItemCommand({
                   TableName: TABLE,
                   Key: { pk: { S: org + ':message' }, sk: { S: rootId } },
-                  UpdateExpression: 'SET #s = :open, lastActivityAt = :t, gsi1sk = :g',
-                  ExpressionAttributeNames: { '#s': 'state' },
+                  // status is what the agent UI renders as unread. Without it a
+                  // customer's reply looks identical to a ticket someone merely
+                  // touched: the thread re-sorts to the top and nothing else
+                  // changes, which on a busy queue is no signal at all.
+                  UpdateExpression:
+                    'SET #s = :open, #st = :unread, lastActivityAt = :t, gsi1sk = :g',
+                  ExpressionAttributeNames: { '#s': 'state', '#st': 'status' },
                   ExpressionAttributeValues: {
                     ':open': { S: 'open' },
+                    ':unread': { S: 'unread' },
                     ':t': { S: ts },
                     ':g': { S: ts + '#' + rootId }
                   }
