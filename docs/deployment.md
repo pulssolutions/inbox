@@ -17,6 +17,8 @@ nothing.
    profile before anything runs.
 2. **Activates the SES receipt rule set.** There is no CloudFormation resource
    for this. Without it a stack deploys perfectly green and drops every message.
+   The set is account-wide and created by the `account` stack; each environment
+   adds one rule to it. Deploy `--only account` before any `inbox-mail`.
 3. **Deploys the inbox stack twice.** The web app's origin is a CloudFront name
    that does not exist until the web stack does, and Cognito rejects any
    `redirect_uri` it was not told about. The second pass registers it. On a
@@ -90,8 +92,68 @@ variable:
   "mailDomain": "mail.acme.example", "notificationEmail": "ops@acme.example",
   "org": { "slug": "acme", "name": "Acme Ltd" },
   "github": { "owner": "acme", "repo": "acme-inbox" },
-  "environments": ["dev", "www"] }
+  "environments": ["dev"] }
 ```
+
+## Several environments
+
+`environments` takes either a list of names or a map of name to overrides. The
+list form is one deployment per profile, and everything comes from the top
+level. The map form lets each environment have its own web hostname and its own
+inbound mail domains, with the top-level values as defaults:
+
+```jsonc
+"web": { "domain": "inbox.acme.example", "hostedZoneId": "Z0123456789ABCDEFGHIJ" },
+"environments": {
+  "dev": {
+    "mailDomains": ["acme-test.example"],
+    "web": { "domain": "inbox-dev.acme.example" }
+  },
+  "www": {
+    "mailDomains": ["mail.acme.example", "support.acme.example"]
+  }
+}
+```
+
+Here `dev` gets its own hostname and answers only for `acme-test.example`;
+`www` inherits `inbox.acme.example` from the top level and answers for two
+domains. An environment that overrides nothing inherits everything.
+
+The first domain in `mailDomains` is the environment's identity: it is what the
+inbox sends from, and the one whose DNS the stack manages when
+`mail.hostedZoneId` is set. Additional domains are received only — verify their
+SES identities and publish their MX records yourself.
+
+**No domain may appear in two environments,** and `profile.mjs --check` refuses
+a profile where one does. Every environment's rule lives in the same
+account-wide rule set, so SES would match whichever rule came first and the
+other environment would silently never see the mail. Two environments that both
+inherit the single top-level `mailDomain` are the same mistake, and are refused
+the same way — give at least one of them its own `mailDomains`.
+
+### Upgrading an existing deployment
+
+Before this change each environment's `inbox-mail` stack owned its own receipt
+rule set. Moving to the shared one needs a specific order, because SES refuses
+to delete a rule set while it is the active one — do it the obvious way and the
+stack update rolls back:
+
+```bash
+node scripts/deploy.mjs <profile> --only account          # creates <name>-inbox, empty
+aws ses set-active-receipt-rule-set --rule-set-name <name>-inbox
+node scripts/deploy.mjs <profile> --only inbox-mail --env dev
+```
+
+Between the second and third commands the active rule set has no rules, so
+inbound mail bounces for a few minutes. Senders retry, so nothing is lost, but
+do not do it during a busy hour. The old `<name>-inbox-<env>` set is deleted by
+the third step, once it is no longer active.
+
+Each environment is a full, separate deployment: its own bucket, table, user
+pool, CloudFront distribution and certificate. Deploy them one at a time with
+`--env`, and note that a second environment's user pool has its own hosted UI
+domain, so a Google IdP needs that environment's redirect URI added to the
+OAuth client.
 
 **Why a variable rather than a committed file.** A copy that edits a tracked
 file to configure itself conflicts on that file at every merge from upstream.

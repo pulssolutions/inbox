@@ -20,7 +20,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, writeFileSync, copyFileSync, mkdirSync, rmSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { load, parametersFor, derive } from './profile.mjs'
+import { load, parametersFor, derive, envConfig } from './profile.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -63,6 +63,7 @@ const dryRun = has('dry-run')
 
 const profile = load(profileName)
 const d = derive(profile, envName)
+const envCfg = envConfig(profile, envName)
 
 const aws = (args, { capture = true } = {}) =>
   execFileSync('aws', ['--region', profile.region, ...args], {
@@ -273,6 +274,17 @@ for (const stack of wanted) {
   } else if (stack === 'inbox-parse') {
     deployStack('inbox-parse')
   } else if (stack === 'inbox-mail') {
+    // The rule set is account-wide and lives in the account stack. Referencing
+    // one that does not exist fails deep inside a rollback, so check up front.
+    if (!dryRun) {
+      try {
+        aws(['ses', 'describe-receipt-rule-set', '--rule-set-name', d.ruleSet])
+      } catch {
+        throw new Error(
+          `receipt rule set ${d.ruleSet} does not exist - deploy --only account first`
+        )
+      }
+    }
     deployStack('inbox-mail')
     if (!dryRun) {
       // The step CloudFormation cannot do. Without it, nothing is received.
@@ -280,7 +292,7 @@ for (const stack of wanted) {
       say(`   activated receipt rule set ${d.ruleSet}`)
     }
   } else if (stack === 'certificates') {
-    if (!profile.web?.domain) {
+    if (!envCfg.web.domain) {
       say('\n== certificates skipped - no web.domain configured')
     } else {
       deployStack('certificates')
@@ -292,10 +304,10 @@ for (const stack of wanted) {
     buildWebApp()
     // CloudFront cannot take the alias without a certificate, and the
     // certificate lives in a us-east-1 stack.
-    const certArn = profile.web?.domain
+    const certArn = envCfg.web.domain
       ? stackOutput('certificates', 'CloudFrontCertificateArn')
       : ''
-    if (profile.web?.domain && !certArn) {
+    if (envCfg.web.domain && !certArn) {
       throw new Error(
         'web.domain is set but no certificate found - deploy --only certificates first'
       )

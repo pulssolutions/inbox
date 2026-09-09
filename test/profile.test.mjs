@@ -1,7 +1,7 @@
 // node --test test/
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { load, validate, derive, parametersFor, webAppUrl } from '../scripts/profile.mjs'
+import { load, validate, derive, parametersFor, webAppUrl, envNames, envConfig } from '../scripts/profile.mjs'
 
 const base = () => load('example')
 
@@ -14,7 +14,8 @@ test('derived names never require a hand-typed account id', () => {
   assert.equal(d.mailBucket, 'example-inbox-mail-dev-111122223333-eu-north-1')
   assert.equal(d.table, 'example-inbox-data-dev')
   assert.equal(d.parseFunction, 'example-inbox-parse-dev')
-  assert.equal(d.ruleSet, 'example-inbox-dev')
+  assert.equal(d.ruleSet, 'example-inbox', 'account-wide: SES activates one rule set per account')
+  assert.equal(d.ruleName, 'example-inbox-dev')
   assert.equal(
     d.sesIdentityArn,
     'arn:aws:ses:eu-north-1:111122223333:identity/example.com'
@@ -177,4 +178,141 @@ test('a custom domain drives the certificate and the API stays opt-in', () => {
 
   const withApi = { ...p, api: { hostedZoneId: 'Z999' } }
   assert.equal(parametersFor(withApi, 'inbox').ApiHostedZoneId, 'Z999')
+})
+
+// --------------------------------------------------- per-environment config
+//
+// One profile, several environments, each with its own web hostname and its
+// own set of inbound mail domains. The top-level values stay the defaults, so
+// a single-environment profile needs none of this.
+
+const multi = () => ({
+  ...base(),
+  environments: {
+    dev: {
+      mailDomains: ['example.net'],
+      web: { domain: 'inbox-dev.example.com', hostedZoneId: 'Z0DEVZONEEXAMPLE1234' }
+    },
+    www: {
+      mailDomains: ['example.com', 'example.org'],
+      web: { domain: 'inbox.example.com', hostedZoneId: 'Z0123456789ABCDEFGHIJ' }
+    }
+  }
+})
+
+test('the array form of environments still works', () => {
+  // Existing profiles must not need editing to keep deploying.
+  const p = base()
+  assert.deepEqual(envNames(p), ['dev'])
+  assert.deepEqual(envConfig(p, 'dev').mailDomains, ['example.com'])
+  assert.equal(envConfig(p, 'dev').web.domain, 'inbox.example.com')
+})
+
+test('a profile with no environments key at all defaults to dev', () => {
+  const p = { ...base() }
+  delete p.environments
+  assert.deepEqual(envNames(p), ['dev'])
+  assert.deepEqual(validate(p), [])
+})
+
+test('each environment resolves its own web domain and mail domains', () => {
+  const p = multi()
+  assert.deepEqual(envNames(p).sort(), ['dev', 'www'])
+  assert.deepEqual(envConfig(p, 'dev').mailDomains, ['example.net'])
+  assert.deepEqual(envConfig(p, 'www').mailDomains, ['example.com', 'example.org'])
+  assert.equal(envConfig(p, 'dev').web.domain, 'inbox-dev.example.com')
+  assert.equal(envConfig(p, 'www').web.domain, 'inbox.example.com')
+})
+
+test('an environment that overrides nothing falls back to the top-level values', () => {
+  const p = { ...base(), environments: { dev: {}, www: { mailDomains: ['example.org'] } } }
+  assert.deepEqual(envConfig(p, 'dev').mailDomains, ['example.com'], 'inherits mailDomain')
+  assert.equal(envConfig(p, 'dev').web.domain, 'inbox.example.com', 'inherits web.domain')
+  assert.equal(envConfig(p, 'www').web.domain, 'inbox.example.com')
+})
+
+test('the first mail domain of an environment is the one it sends from', () => {
+  const p = multi()
+  const dev = derive(p, 'dev')
+  const www = derive(p, 'www')
+  assert.equal(dev.senderEmail, 'support@example.net')
+  assert.equal(www.senderEmail, 'support@example.com')
+  assert.equal(dev.sesIdentityArn, 'arn:aws:ses:eu-north-1:111122223333:identity/example.net')
+  assert.equal(www.sesIdentityArn, 'arn:aws:ses:eu-north-1:111122223333:identity/example.com')
+})
+
+test('the receipt rule set is account-wide, the rule inside it is per environment', () => {
+  // SES activates ONE rule set per account per region, so two environments
+  // that each owned a rule set could never receive mail at the same time.
+  const p = multi()
+  assert.equal(derive(p, 'dev').ruleSet, 'example-inbox')
+  assert.equal(derive(p, 'www').ruleSet, 'example-inbox')
+  assert.equal(derive(p, 'dev').ruleName, 'example-inbox-dev')
+  assert.equal(derive(p, 'www').ruleName, 'example-inbox-www')
+})
+
+test('the mail stack receives every domain for its environment, and only those', () => {
+  const p = multi()
+  const dev = parametersFor(p, 'inbox-mail', 'dev')
+  const www = parametersFor(p, 'inbox-mail', 'www')
+  assert.equal(dev.RecipientDomains, 'example.net')
+  assert.equal(www.RecipientDomains, 'example.com,example.org')
+  assert.equal(dev.ReceiptRuleSetName, 'example-inbox')
+  assert.equal(www.ReceiptRuleSetName, 'example-inbox')
+  assert.equal(dev.RuleName, 'example-inbox-dev')
+  assert.ok(!www.RecipientDomains.includes('example.net'), 'dev mail must not reach www')
+})
+
+test('web and certificate stacks follow the environment, not the profile default', () => {
+  const p = multi()
+  assert.equal(parametersFor(p, 'web', 'dev').DomainName, 'inbox-dev.example.com')
+  assert.equal(parametersFor(p, 'web', 'www').DomainName, 'inbox.example.com')
+  assert.equal(parametersFor(p, 'web', 'dev').HostedZoneId, 'Z0DEVZONEEXAMPLE1234')
+  assert.equal(parametersFor(p, 'certificates', 'dev').WebDomainName, 'inbox-dev.example.com')
+  assert.equal(parametersFor(p, 'certificates', 'www').WebDomainName, 'inbox.example.com')
+})
+
+test('the app origin and Cognito callbacks are per environment', () => {
+  const p = multi()
+  assert.equal(webAppUrl(p, {}, 'dev'), 'https://inbox-dev.example.com')
+  assert.equal(webAppUrl(p, {}, 'www'), 'https://inbox.example.com')
+  assert.equal(parametersFor(p, 'inbox', 'dev').WebAppUrl, 'https://inbox-dev.example.com')
+  assert.equal(parametersFor(p, 'inbox', 'www').WebAppUrl, 'https://inbox.example.com')
+})
+
+test('two environments may not claim the same mail domain', () => {
+  // Both rules live in one rule set; SES would match the first and the other
+  // environment would silently never see the mail.
+  const p = { ...base(), environments: { dev: { mailDomains: ['example.com'] }, www: { mailDomains: ['example.com'] } } }
+  assert.match(validate(p).join('\n'), /example\.com is claimed by more than one environment/)
+})
+
+test('the same clash is caught when it comes from the defaults', () => {
+  // Neither environment overrides mailDomains, so both inherit the top-level
+  // one - a profile that looks fine and receives mail in one environment only.
+  const p = { ...base(), environments: { dev: {}, www: {} } }
+  assert.match(validate(p).join('\n'), /claimed by more than one environment/)
+})
+
+test('an environment with no mail domain is rejected', () => {
+  const p = { ...base(), environments: { dev: { mailDomains: [] } } }
+  assert.match(validate(p).join('\n'), /environments\.dev\.mailDomains is empty/)
+})
+
+test('a per-environment web zone without a domain is rejected', () => {
+  const p = {
+    ...base(),
+    web: {},
+    environments: { dev: { web: { hostedZoneId: 'Z1' } } }
+  }
+  assert.match(validate(p).join('\n'), /environments\.dev\.web\.hostedZoneId set but/)
+})
+
+test('a mail domain that is not a domain is caught here, not by SES', () => {
+  const p = { ...base(), environments: { dev: { mailDomains: ['not a domain'] } } }
+  assert.match(validate(p).join('\n'), /environments\.dev\.mailDomains/)
+})
+
+test('an env absent from the environments map is refused', () => {
+  assert.throws(() => parametersFor(multi(), 'inbox', 'staging'), /not listed/)
 })

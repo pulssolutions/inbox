@@ -58,6 +58,47 @@ const at = (obj, path) =>
 
 const isBlank = (v) => v === undefined || v === null || String(v).trim() === ''
 
+const DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i
+
+// ------------------------------------------------------------- environments
+//
+// `environments` is either a list of names or a map of name -> overrides. The
+// map form is what lets one profile describe several deployments that differ
+// in their web hostname and in which mail domains they answer for; the list
+// form is the same thing with no overrides, and stays valid untouched.
+//
+// Everything resolves through envConfig, so nothing downstream has to know
+// which form was written or which values came from the top level.
+
+const overridesFor = (p) =>
+  p.environments && !Array.isArray(p.environments) ? p.environments : {}
+
+export const envNames = (p) => {
+  if (Array.isArray(p.environments)) return p.environments
+  if (p.environments) return Object.keys(p.environments)
+  return ['dev']
+}
+
+export const envConfig = (p, env = 'dev') => {
+  const o = overridesFor(p)[env] || {}
+  return {
+    // Absent means "inherit the profile's one domain". An explicit value -
+    // including an empty list - is taken literally, so a mistake is caught by
+    // validation rather than silently replaced by the default.
+    mailDomains:
+      o.mailDomains === undefined
+        ? [p.mailDomain].filter((d) => !isBlank(d))
+        : [].concat(o.mailDomains).filter((d) => !isBlank(d)),
+    mail: { hostedZoneId: o.mail?.hostedZoneId ?? p.mail?.hostedZoneId ?? '' },
+    web: {
+      domain: o.web?.domain ?? p.web?.domain ?? '',
+      hostedZoneId: o.web?.hostedZoneId ?? p.web?.hostedZoneId ?? ''
+    },
+    api: { hostedZoneId: o.api?.hostedZoneId ?? p.api?.hostedZoneId ?? '' },
+    senderLocalPart: o.senderLocalPart || p.senderLocalPart || 'support'
+  }
+}
+
 export const validate = (p) => {
   const errors = []
   for (const key of REQUIRED) {
@@ -106,6 +147,33 @@ export const validate = (p) => {
   if (isBlank(gid) !== isBlank(gsecret)) {
     errors.push('auth.google.clientId and auth.google.secretSsm must be set together')
   }
+  // Every environment shares ONE SES receipt rule set (see derive.ruleSet), so
+  // a domain claimed by two of them is not a duplicate to tidy up later: SES
+  // matches the first rule and the other environment never sees the mail.
+  const claimedBy = new Map()
+  for (const env of envNames(p)) {
+    const c = envConfig(p, env)
+    if (!c.mailDomains.length) {
+      errors.push(`environments.${env}.mailDomains is empty - it would receive nothing`)
+    }
+    for (const domain of c.mailDomains) {
+      if (!DOMAIN.test(domain)) {
+        errors.push(`environments.${env}.mailDomains contains "${domain}", which is not a domain`)
+        continue
+      }
+      if (claimedBy.has(domain)) {
+        errors.push(
+          `mail domain ${domain} is claimed by more than one environment ` +
+            `(${claimedBy.get(domain)} and ${env})`
+        )
+      } else {
+        claimedBy.set(domain, env)
+      }
+    }
+    if (isBlank(c.web.domain) && !isBlank(c.web.hostedZoneId)) {
+      errors.push(`environments.${env}.web.hostedZoneId set but that environment has no web.domain`)
+    }
+  }
   return errors
 }
 
@@ -113,24 +181,37 @@ export const validate = (p) => {
 
 // Everything below is computed, never configured. Changing a naming convention
 // means changing it here once.
-export const derive = (p, env) => ({
-  mailBucket: `${p.name}-inbox-mail-${env}-${p.accountId}-${p.region}`,
-  webBucket: `${p.name}-inbox-web-${env}-${p.accountId}`,
-  artifactBucket: `${p.name}-artifacts-${env}-${p.accountId}-${p.region}`,
-  table: `${p.name}-inbox-data-${env}`,
-  parseFunction: `${p.name}-inbox-parse-${env}`,
-  ruleSet: `${p.name}-inbox-${env}`,
-  sesIdentityArn: `arn:aws:ses:${p.region}:${p.accountId}:identity/${p.mailDomain}`,
-  senderEmail: `${p.senderLocalPart || 'support'}@${p.mailDomain}`,
-  deployRoleArn: `arn:aws:iam::${p.accountId}:role/${p.name}-github-actions-deploy`
-})
+export const derive = (p, env) => {
+  const c = envConfig(p, env)
+  // The domain this environment sends and verifies as. Extra inbound domains
+  // are received but never sent from, so one of them has to be the identity.
+  const primaryMailDomain = c.mailDomains[0] || p.mailDomain
+  return {
+    mailBucket: `${p.name}-inbox-mail-${env}-${p.accountId}-${p.region}`,
+    webBucket: `${p.name}-inbox-web-${env}-${p.accountId}`,
+    artifactBucket: `${p.name}-artifacts-${env}-${p.accountId}-${p.region}`,
+    table: `${p.name}-inbox-data-${env}`,
+    parseFunction: `${p.name}-inbox-parse-${env}`,
+    // Account-wide, deliberately: SES keeps exactly one ACTIVE receipt rule
+    // set per account per region, so a rule set per environment would mean
+    // only one environment could ever receive mail. One set, one rule each.
+    ruleSet: `${p.name}-inbox`,
+    ruleName: `${p.name}-inbox-${env}`,
+    mailDomains: c.mailDomains,
+    primaryMailDomain,
+    sesIdentityArn: `arn:aws:ses:${p.region}:${p.accountId}:identity/${primaryMailDomain}`,
+    senderEmail: `${c.senderLocalPart}@${primaryMailDomain}`,
+    deployRoleArn: `arn:aws:iam::${p.accountId}:role/${p.name}-github-actions-deploy`
+  }
+}
 
 // The web app's real origin. A custom domain wins; otherwise the CloudFront
 // distribution's own name, which only exists after that stack is created - so
 // this is empty on the first pass and filled on the second. Cognito rejects any
 // redirect_uri it has not been told about, so this must end up exact.
-export const webAppUrl = (p, resolved) => {
-  if (!isBlank(p.web?.domain)) return `https://${p.web.domain}`
+export const webAppUrl = (p, resolved, env = 'dev') => {
+  const domain = envConfig(p, env).web.domain
+  if (!isBlank(domain)) return `https://${domain}`
   return resolved?.cloudfrontDomain ? `https://${resolved.cloudfrontDomain}` : ''
 }
 
@@ -157,9 +238,13 @@ const STACKS = {
   'inbox-mail': (p, env, d) => ({
     ProjectPrefix: p.name,
     Environment: env,
-    RecipientDomain: p.mailDomain,
+    // Every domain this environment answers for. The rule set is shared, so
+    // this list is also what keeps one environment's mail out of the other's.
+    RecipientDomains: d.mailDomains.join(','),
+    ReceiptRuleSetName: d.ruleSet,
+    RuleName: d.ruleName,
     InboundObjectExpiryDays: String(p.ops?.mailRetentionDays ?? 1825),
-    MailHostedZoneId: p.mail?.hostedZoneId || '',
+    MailHostedZoneId: envConfig(p, env).mail.hostedZoneId,
     ParseFunctionArn: `arn:aws:lambda:${p.region}:${p.accountId}:function:${d.parseFunction}`
   }),
 
@@ -172,7 +257,7 @@ const STACKS = {
     SenderEmail: d.senderEmail,
     NotifySenderName: `${p.brand?.short || p.org.name} ${p.brand?.tagline || 'Inbox'}`,
     Locale: p.locale || 'en',
-    WebBaseUrl: webAppUrl(p, r)
+    WebBaseUrl: webAppUrl(p, r, env)
   }),
 
   inbox: (p, env, d, r) => ({
@@ -186,33 +271,33 @@ const STACKS = {
     // Only used to derive callback URLs when WebAppUrl is empty - i.e. on the
     // first pass, before the CloudFront name exists. Must still be a real
     // domain, because Cognito validates the URLs it is given.
-    RootDomainName: p.web?.domain || p.mailDomain,
+    RootDomainName: envConfig(p, env).web.domain || d.primaryMailDomain,
     SesSourceArn: d.sesIdentityArn,
     MailBucketName: d.mailBucket,
     GoogleClientId: p.auth?.google?.clientId || '',
     GoogleClientSecretSsmName: p.auth?.google?.secretSsm || '',
-    WebAppUrl: webAppUrl(p, r),
+    WebAppUrl: webAppUrl(p, r, env),
     // Deliberately NOT web.hostedZoneId: the API hostname is derived from
     // RootDomainName (the parent domain), so a delegated child zone would not
     // cover it and ACM validation would hang there until the stack rolled back.
     // Opt in explicitly, with a zone that really contains the API hostname.
-    ApiHostedZoneId: p.api?.hostedZoneId || ''
+    ApiHostedZoneId: envConfig(p, env).api.hostedZoneId
   }),
 
   certificates: (p, env) => ({
     ProjectPrefix: p.name,
     CertificateName: 'inbox',
     Environment: env,
-    HostedZoneId: p.web?.hostedZoneId || '',
-    WebDomainName: p.web?.domain || '',
+    HostedZoneId: envConfig(p, env).web.hostedZoneId,
+    WebDomainName: envConfig(p, env).web.domain,
     AdditionalDomainName: ''
   }),
 
   web: (p, env) => ({
     ProjectPrefix: p.name,
     Environment: env,
-    DomainName: p.web?.domain || '',
-    HostedZoneId: p.web?.hostedZoneId || ''
+    DomainName: envConfig(p, env).web.domain,
+    HostedZoneId: envConfig(p, env).web.hostedZoneId
   })
 }
 
@@ -263,7 +348,7 @@ export const parametersFor = (profile, stack, env = 'dev', resolved = {}) => {
   if (!build) {
     throw new Error(`unknown stack "${stack}" (have: ${Object.keys(STACKS).join(', ')})`)
   }
-  if (!(profile.environments || ['dev']).includes(env)) {
+  if (!envNames(profile).includes(env)) {
     throw new Error(`env "${env}" not listed in profile.environments`)
   }
   return build(profile, env, derive(profile, env), resolved)

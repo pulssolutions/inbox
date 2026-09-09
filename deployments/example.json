@@ -51,5 +51,6 @@
     "repo": "inbox"
   },
 
+  "$comment2": "environments is either a list of names, or a map of name -> overrides so each environment gets its own web hostname and its own inbound mail domains. See docs/deployment.md.",
   "environments": ["dev"]
 }
