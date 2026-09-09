@@ -92,15 +92,14 @@ variable:
   "mailDomain": "mail.acme.example", "notificationEmail": "ops@acme.example",
   "org": { "slug": "acme", "name": "Acme Ltd" },
   "github": { "owner": "acme", "repo": "acme-inbox" },
-  "environments": ["dev"] }
+  "environments": { "dev": {} } }
 ```
 
 ## Several environments
 
-`environments` takes either a list of names or a map of name to overrides. The
-list form is one deployment per profile, and everything comes from the top
-level. The map form lets each environment have its own web hostname and its own
-inbound mail domains, with the top-level values as defaults:
+`environments` maps a name to that environment's overrides. Each may have its
+own web hostname and its own inbound mail domains; anything it does not
+override comes from the top level, so a single environment is `{ "dev": {} }`:
 
 ```jsonc
 "web": { "domain": "inbox.acme.example", "hostedZoneId": "Z0123456789ABCDEFGHIJ" },
@@ -130,6 +129,11 @@ account-wide rule set, so SES would match whichever rule came first and the
 other environment would silently never see the mail. Two environments that both
 inherit the single top-level `mailDomain` are the same mistake, and are refused
 the same way — give at least one of them its own `mailDomains`.
+
+`environments` was once a list of names. That form cannot survive this rule —
+with nothing to override the one top-level `mailDomain` with, a list is only
+ever valid with a single entry — so it is rejected, with the replacement in the
+error message.
 
 ### Upgrading an existing deployment
 

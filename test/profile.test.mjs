@@ -200,12 +200,12 @@ const multi = () => ({
   }
 })
 
-test('the array form of environments still works', () => {
-  // Existing profiles must not need editing to keep deploying.
-  const p = base()
-  assert.deepEqual(envNames(p), ['dev'])
-  assert.deepEqual(envConfig(p, 'dev').mailDomains, ['example.com'])
-  assert.equal(envConfig(p, 'dev').web.domain, 'inbox.example.com')
+test('the old list form is refused, with the replacement in the message', () => {
+  // A list cannot express per-environment domains, and no two environments may
+  // share one - so a list is only ever valid with a single entry. Say so.
+  const p = { ...base(), environments: ['dev', 'www'] }
+  assert.match(validate(p).join('\n'), /must be a map of name -> overrides/)
+  assert.match(validate(p).join('\n'), /write \{"dev": \{\}\}/)
 })
 
 test('a profile with no environments key at all defaults to dev', () => {
@@ -213,6 +213,7 @@ test('a profile with no environments key at all defaults to dev', () => {
   delete p.environments
   assert.deepEqual(envNames(p), ['dev'])
   assert.deepEqual(validate(p), [])
+  assert.deepEqual(envConfig(p, 'dev').mailDomains, ['example.com'], 'inherits the top level')
 })
 
 test('each environment resolves its own web domain and mail domains', () => {
@@ -311,6 +312,12 @@ test('a per-environment web zone without a domain is rejected', () => {
 test('a mail domain that is not a domain is caught here, not by SES', () => {
   const p = { ...base(), environments: { dev: { mailDomains: ['not a domain'] } } }
   assert.match(validate(p).join('\n'), /environments\.dev\.mailDomains/)
+})
+
+test('a $comment inside the map is not an environment', () => {
+  const p = { ...base(), environments: { $comment: 'why these exist', dev: {} } }
+  assert.deepEqual(envNames(p), ['dev'])
+  assert.deepEqual(validate(p), [], 'a comment must not claim a mail domain')
 })
 
 test('an env absent from the environments map is refused', () => {

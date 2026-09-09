@@ -62,20 +62,22 @@ const DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+
 
 // ------------------------------------------------------------- environments
 //
-// `environments` is either a list of names or a map of name -> overrides. The
-// map form is what lets one profile describe several deployments that differ
-// in their web hostname and in which mail domains they answer for; the list
-// form is the same thing with no overrides, and stays valid untouched.
+// `environments` maps a name to that environment's overrides - its own web
+// hostname, its own inbound mail domains. Anything it does not override comes
+// from the top level, so a single-environment profile is `{ "dev": {} }`.
 //
-// Everything resolves through envConfig, so nothing downstream has to know
-// which form was written or which values came from the top level.
+// It was once a list of names. That form cannot survive the rule that no two
+// environments may claim the same mail domain: with nothing to override the
+// single top-level mailDomain with, a list is only ever valid with exactly one
+// entry. It is rejected with a hint rather than quietly accepted.
 
-const overridesFor = (p) =>
-  p.environments && !Array.isArray(p.environments) ? p.environments : {}
+const overridesFor = (p) => (p.environments && !Array.isArray(p.environments) ? p.environments : {})
 
 export const envNames = (p) => {
   if (Array.isArray(p.environments)) return p.environments
-  if (p.environments) return Object.keys(p.environments)
+  // $-prefixed keys are comments, as everywhere else in a profile. Without
+  // this, "$comment" is an environment - and one claiming a mail domain.
+  if (p.environments) return Object.keys(p.environments).filter((k) => !k.startsWith('$'))
   return ['dev']
 }
 
@@ -150,6 +152,12 @@ export const validate = (p) => {
   // Every environment shares ONE SES receipt rule set (see derive.ruleSet), so
   // a domain claimed by two of them is not a duplicate to tidy up later: SES
   // matches the first rule and the other environment never sees the mail.
+  if (Array.isArray(p.environments)) {
+    errors.push(
+      'environments must be a map of name -> overrides, not a list ' +
+        `(write {"${p.environments[0] || 'dev'}": {}} instead)`
+    )
+  }
   const claimedBy = new Map()
   for (const env of envNames(p)) {
     const c = envConfig(p, env)
