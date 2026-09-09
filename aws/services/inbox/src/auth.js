@@ -41,14 +41,26 @@ export const requireAdmin = (event, org) => {
 export const allowedCategories = (claims, org) => {
   const orgs = parseOrgs(claims?.orgs)
   const raw = orgs && org ? orgs[org]?.categories : undefined
+  // Absent means unscoped: the pretoken trigger omits the key for an admin
+  // with no category restriction rather than writing '*'.
   if (raw === undefined || raw === null || raw === '*') return '*'
   if (Array.isArray(raw)) return raw
-  try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : '*'
-  } catch {
-    return '*'
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) return parsed
+    } catch {
+      // Not JSON. Falls through to the deny below.
+    }
   }
+  // Fail CLOSED. This feeds assertCategoryAllowed, the guard every message- and
+  // note-touching handler runs, so a value we cannot read must never widen
+  // access - the symptom would be a scoped admin quietly seeing every category.
+  // Nothing emits this today; it can only come from a pretoken regression or a
+  // change of claim shape, so say so rather than failing mutely.
+  // eslint-disable-next-line no-console
+  console.warn('unreadable categories claim for org', org, '- denying all categories')
+  return []
 }
 
 // Hard server-side category guard. Throws NotFoundError (404, not 403 — don't
