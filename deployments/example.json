@@ -51,5 +51,8 @@
     "repo": "inbox"
   },
 
-  "environments": ["dev"]
+  "environments": {
+    "$comment": "One entry per environment. Each may override mailDomains, web, mail, api and senderLocalPart; anything absent comes from the top level, so a single environment is an empty object. No two environments may claim the same mail domain. See docs/deployment.md.",
+    "dev": {}
+  }
 }

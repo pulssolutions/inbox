@@ -1,8 +1,9 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   Inbound email receiver. An SES receipt rule stores raw MIME to S3, then
-  invokes the parse Lambda. One deployment per AWS account: only one receipt
-  rule set can be ACTIVE per account per region.
+  invokes the parse Lambda. One stack per environment; they all add their rule
+  to the single account-wide rule set created by the account stack, because SES
+  keeps only one ACTIVE receipt rule set per account per region.
 
 # NOT owned by this stack, and deliberately so:
 #
@@ -11,6 +12,10 @@ Description: >
 #   often not Route53; then verifying the identity needs records only the domain
 #   owner can publish, so both are a manual bootstrap (see README). When the zone
 #   IS in Route53 in this account, the stack does the whole job instead.
+#
+#   The rule set itself - it is account-wide and belongs to the account stack,
+#   so that several environments can receive mail at the same time. Deploy that
+#   stack first or the rule here has nowhere to go.
 #
 #   Activating the rule set - CloudFormation has no resource for it. A stack
 #   that deploys clean and still drops every message is almost always this.
@@ -26,12 +31,30 @@ Parameters:
     AllowedValues:
       - dev
       - www
-  RecipientDomain:
+  RecipientDomains:
+    Type: CommaDelimitedList
+    Description: >-
+      Mail to any address at any of these domains is accepted. The recipient's
+      local part becomes the ticket's category, so no per-queue configuration
+      exists - adding billing@ is an email alias, not a deploy.
+
+      The first domain is the environment's own identity: it is what the inbox
+      sends from, and the one this stack manages DNS for when MailHostedZoneId
+      is set. Any others are received only, and must be verified by hand.
+
+      No domain may appear in two environments. The rule set is shared, so SES
+      would match whichever rule comes first and the other environment would
+      silently never see the mail.
+  ReceiptRuleSetName:
     Type: String
     Description: >-
-      Mail to any address at this domain is accepted. The recipient's local part
-      becomes the ticket's category, so no per-queue configuration exists -
-      adding billing@ is an email alias, not a deploy.
+      The account-wide rule set to add this environment's rule to, created by
+      the account stack. It must already exist.
+  RuleName:
+    Type: String
+    Description: >-
+      Name of this environment's rule inside the shared set. Unique per
+      environment, or one environment overwrites another's rule.
   InboundObjectExpiryDays:
     Type: Number
     Default: 1825
@@ -45,7 +68,7 @@ Parameters:
     Type: String
     Default: ""
     Description: >-
-      Route53 zone for RecipientDomain, in this account. Empty means the domain
+      Route53 zone for the FIRST of RecipientDomains, in this account. Empty means the domain
       is hosted elsewhere: publish the MX and DKIM records and verify the SES
       identity by hand, and this stack touches neither. Set it and the stack
       owns the identity plus the MX and three DKIM records.
@@ -76,7 +99,7 @@ Resources:
     Type: AWS::SES::EmailIdentity
     Condition: ManagesMailDns
     Properties:
-      EmailIdentity: !Ref RecipientDomain
+      EmailIdentity: !Select [0, !Ref RecipientDomains]
       DkimAttributes:
         SigningEnabled: true
 
@@ -85,7 +108,7 @@ Resources:
     Condition: ManagesMailDns
     Properties:
       HostedZoneId: !Ref MailHostedZoneId
-      Name: !Sub "${RecipientDomain}."
+      Name: !Join ["", [!Select [0, !Ref RecipientDomains], "."]]
       Type: MX
       TTL: "300"
       ResourceRecords:
@@ -172,23 +195,17 @@ Resources:
               StringEquals:
                 aws:SourceAccount: !Ref AWS::AccountId
 
-  InboundRuleSet:
-    Type: AWS::SES::ReceiptRuleSet
-    Properties:
-      RuleSetName: !Sub "${ProjectPrefix}-inbox-${Environment}"
-
   InboundRule:
     Type: AWS::SES::ReceiptRule
     # SES checks the S3 grant when the rule is created, not when mail arrives.
     DependsOn: InboundBucketPolicy
     Properties:
-      RuleSetName: !Ref InboundRuleSet
+      RuleSetName: !Ref ReceiptRuleSetName
       Rule:
-        Name: store-and-parse
+        Name: !Ref RuleName
         Enabled: true
         ScanEnabled: true
-        Recipients:
-          - !Ref RecipientDomain
+        Recipients: !Ref RecipientDomains
         # S3 first: the Lambda event carries headers only, and parse fetches the
         # body from S3 by message id, so it has to already be there.
         Actions:
@@ -211,7 +228,10 @@ Outputs:
     Export:
       Name: !Sub "${ProjectPrefix}-${Environment}-inbox-mail-bucket"
   ReceiptRuleSetName:
-    Value: !Ref InboundRuleSet
+    Value: !Ref ReceiptRuleSetName
+  RecipientDomains:
+    Description: Domains this environment answers for.
+    Value: !Join [",", !Ref RecipientDomains]
   ActivateCommand:
     Description: CloudFormation cannot activate a rule set. Without this, no mail is received.
-    Value: !Sub "aws ses set-active-receipt-rule-set --region ${AWS::Region} --rule-set-name ${ProjectPrefix}-inbox-${Environment}"
+    Value: !Sub "aws ses set-active-receipt-rule-set --region ${AWS::Region} --rule-set-name ${ReceiptRuleSetName}"

@@ -254,7 +254,29 @@ Resources:
                   - iam:UntagOpenIDConnectProvider
                 Resource: !Sub "arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
 
+  # ---- shared inbound mail rule set --------------------------------------
+  # SES keeps exactly ONE active receipt rule set per account per region, so
+  # the set cannot belong to a per-environment stack - deploying www would
+  # deactivate dev's and stop its mail, both stacks reporting success. It lives
+  # here instead, and each environment's inbox-mail stack adds its own rule.
+  #
+  # Empty on creation; it receives nothing until an inbox-mail stack adds a
+  # rule and something activates the set (see that stack's ActivateCommand).
+  InboundRuleSet:
+    Type: AWS::SES::ReceiptRuleSet
+    # Deleting it would delete every environment's rules with it, and the
+    # account stack is bootstrap that nobody expects to be load-bearing.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RuleSetName: !Sub "${ProjectPrefix}-inbox"
+
 Outputs:
+  InboundRuleSetName:
+    Description: Shared by every environment; each adds one rule to it.
+    Value: !Ref InboundRuleSet
+    Export:
+      Name: !Sub "${ProjectPrefix}-inbox-receipt-rule-set"
   CloudTrailBucketName:
     Value: !Ref CloudTrailBucket
   GitHubActionsDeployRoleArn:
