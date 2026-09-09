@@ -1,3 +1,7 @@
+# License
+
+License goes here
+
 # inbox
 
 A shared email support inbox, deployable per company from one config file.
