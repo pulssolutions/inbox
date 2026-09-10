@@ -16,6 +16,12 @@ Parameters:
     AllowedValues:
       - dev
       - www
+  NotificationEmail:
+    Type: String
+    Default: ""
+    Description: >-
+      Where to send the alarm for mail SES accepted but parse could not resolve
+      to a tenant. Empty disables the alarm, and the topic with it.
   LogRetentionDays:
     Type: Number
     Default: 14
@@ -43,6 +49,9 @@ Parameters:
   WebBaseUrl:
     Type: String
     Description: Inbox web app base URL for notification deep links (/m/{rootId}).
+
+Conditions:
+  HasNotificationEmail: !Not [!Equals [!Ref NotificationEmail, ""]]
 
 Resources:
   ParseLambdaRole:
@@ -80,6 +89,56 @@ Resources:
                   - ses:SendEmail
                   - ses:SendRawEmail
                 Resource: "*"
+
+  # ---- unresolved-tenant alarm ------------------------------------------
+  # Mail for a domain with no ALL:tenant row is dropped on purpose, but SES has
+  # already ACCEPTED it - so the sender is never bounced and the agent never
+  # sees it arrive. Left to a log line, this stays invisible until somebody asks
+  # why a customer got no answer.
+  UnknownTenantTopic:
+    Type: AWS::SNS::Topic
+    Condition: HasNotificationEmail
+    Properties:
+      TopicName: !Sub "${ProjectPrefix}-inbox-unknown-tenant-${Environment}"
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref NotificationEmail
+
+  UnknownTenantMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Condition: HasNotificationEmail
+    DependsOn: ParseLambdaLogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ProjectPrefix}-inbox-parse-${Environment}"
+      # Matches what parse logs when resolveTenant returns nothing.
+      FilterPattern: '"no tenant resolved"'
+      MetricTransformations:
+        - MetricNamespace: !Sub "${ProjectPrefix}/inbox"
+          MetricName: !Sub "UnknownTenantMail-${Environment}"
+          MetricValue: "1"
+          DefaultValue: 0
+
+  UnknownTenantAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasNotificationEmail
+    Properties:
+      AlarmName: !Sub "${ProjectPrefix}-inbox-unknown-tenant-${Environment}"
+      AlarmDescription: >-
+        Mail arrived for a domain with no ALL:tenant row. SES accepted it, so
+        nothing bounced; it is stored in S3 but never became a ticket. Seed the
+        tenant row, then replay it.
+      Namespace: !Sub "${ProjectPrefix}/inbox"
+      MetricName: !Sub "UnknownTenantMail-${Environment}"
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      # One dropped message is worth knowing about, and no data is the normal
+      # state - it must not read as an alarm.
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref UnknownTenantTopic
 
   ParseLambdaLogGroup:
     Type: AWS::Logs::LogGroup
