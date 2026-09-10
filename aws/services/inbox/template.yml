@@ -13,6 +13,16 @@ Parameters:
   SenderEmail:
     Type: String
     Description: SES verified From/Reply-To address for outbound replies.
+  MailDomains:
+    Type: CommaDelimitedList
+    Default: ""
+    Description: >-
+      Every domain this environment receives on. A reply goes back from the one
+      the customer actually addressed, falling back to SenderEmail's domain when
+      none of them is ours - a forwarded message, or someone merely cc-ed.
+
+      Safe to send as any of these: SES accepts inbound mail only for a verified
+      identity, so a domain we can receive on is one we may send as.
   SenderName:
     Type: String
     Description: Friendly From display name for Cognito emails (the one-time code).
@@ -516,6 +526,7 @@ Resources:
           TABLE_NAME: !Ref InboxDataTable
           ADMIN_USER_POOL_ID: !Ref AdminUserPool
           SENDER_EMAIL: !Ref SenderEmail
+          MAIL_DOMAINS: !Join [",", !Ref MailDomains]
           NOTIFY_SENDER_NAME: !Ref NotifySenderName
           LOCALE: !Ref Locale
           MAIL_BUCKET: !Ref MailBucketName
