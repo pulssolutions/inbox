@@ -21,6 +21,7 @@ import { existsSync, writeFileSync, copyFileSync, mkdirSync, rmSync } from 'node
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { load, parametersFor, derive, envConfig } from './profile.mjs'
+import { missingTenants, seedHint } from './tenants.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -335,5 +336,46 @@ for (const stack of wanted) {
     }
   }
 }
+
+// A domain SES accepts but parse cannot resolve is dropped silently: the
+// sender gets no bounce, because SES did accept it. Say so here, where somebody
+// is watching, rather than leaving it to a log line nobody reads.
+//
+// A warning, not a failure: the documented bootstrap seeds tenant rows AFTER
+// the first deploy (docs/bootstrap.md), so an empty table is a normal state to
+// pass through, not a broken one.
+const warnAboutMissingTenants = () => {
+  if (dryRun) return
+  let known
+  try {
+    const out = aws([
+      'dynamodb', 'query',
+      '--table-name', d.table,
+      '--key-condition-expression', 'pk = :p',
+      '--expression-attribute-values', '{":p":{"S":"ALL:tenant"}}',
+      '--query', 'Items[].sk.S',
+      '--output', 'json'
+    ])
+    known = JSON.parse(out || '[]')
+  } catch {
+    // No table yet, or no permission to read it. Neither is worth failing a
+    // deploy over, and both are obvious from the deploy itself.
+    return
+  }
+  const missing = missingTenants(d.mailDomains, known)
+  if (!missing.length) return
+
+  say(`\n!! ${missing.length} mail domain(s) will be accepted by SES but dropped by parse:`)
+  for (const domain of missing) {
+    say(`   ${domain} - no ALL:tenant row`)
+  }
+  say('   Mail to these is stored but never becomes a ticket, and the sender')
+  say('   is not told. Seed a row for each, naming the org that owns it:')
+  for (const domain of missing) {
+    say(`\n   ${seedHint({ domain, env: envName, org: profile.org.slug, prefix: profile.name, name: profile.org.name })}`)
+  }
+}
+
+warnAboutMissingTenants()
 
 say('\ndone')

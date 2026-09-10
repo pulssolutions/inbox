@@ -259,6 +259,7 @@ const STACKS = {
   'inbox-parse': (p, env, d, r) => ({
     ProjectPrefix: p.name,
     Environment: env,
+    NotificationEmail: p.notificationEmail || '',
     LogRetentionDays: String(p.ops?.logRetentionDays ?? 14),
     InboxTableName: d.table,
     BucketName: d.mailBucket,

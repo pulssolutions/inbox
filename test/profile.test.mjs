@@ -323,3 +323,10 @@ test('a $comment inside the map is not an environment', () => {
 test('an env absent from the environments map is refused', () => {
   assert.throws(() => parametersFor(multi(), 'inbox', 'staging'), /not listed/)
 })
+
+test('parse is given somewhere to send the unresolved-tenant alarm', () => {
+  assert.equal(parametersFor(base(), 'inbox-parse').NotificationEmail, 'ops@example.com')
+  // No address, no alarm and no topic - the stack still deploys.
+  const p = { ...base(), notificationEmail: 'x@example.com' }
+  assert.equal(parametersFor(p, 'inbox-parse').NotificationEmail, 'x@example.com')
+})

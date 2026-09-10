@@ -19,6 +19,13 @@ From one inbound message parse derives:
 - **tenant** — the recipient's domain, via an `ALL:tenant` row. No fallback: an
   unknown domain is logged and dropped rather than stored under a junk org.
   Those rows are the allowlist.
+
+  **Adding a receive domain is therefore two steps**, in two places. Putting it
+  in the profile's `mailDomains` makes SES *accept* the mail; seeding its
+  `ALL:tenant` row is what makes anything *process* it. With only the first, SES
+  accepts the message and parse drops it — and because SES accepted it, the
+  sender is never bounced. A deploy warns about domains with no row, and the
+  `UnknownTenantMail` alarm fires if one arrives anyway.
 - **thread** — ids from `In-Reply-To` and `References`, matched against the
   `mailMessageId` values stored on previous outbound messages.
 
