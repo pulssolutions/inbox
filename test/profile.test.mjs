@@ -323,3 +323,9 @@ test('a $comment inside the map is not an environment', () => {
 test('an env absent from the environments map is refused', () => {
   assert.throws(() => parametersFor(multi(), 'inbox', 'staging'), /not listed/)
 })
+
+test('the service is told every domain its environment receives on', () => {
+  // So reply() can answer from the domain the customer actually wrote to.
+  const p = { ...base(), environments: { dev: { mailDomains: ['a.example', 'b.example'] } } }
+  assert.equal(parametersFor(p, 'inbox', 'dev').MailDomains, 'a.example,b.example')
+})

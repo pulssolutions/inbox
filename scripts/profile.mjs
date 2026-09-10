@@ -272,6 +272,8 @@ const STACKS = {
     ProjectPrefix: p.name,
     Environment: env,
     SenderEmail: d.senderEmail,
+    // So a reply can go back from the domain the customer wrote to.
+    MailDomains: d.mailDomains.join(','),
     SenderName: p.org.name,
     NotifySenderName: `${p.brand?.short || p.org.name} ${p.brand?.tagline || 'Inbox'}`,
     Locale: p.locale || 'en',
