@@ -96,26 +96,50 @@ describe('admins CRUD', () => {
     expect(await deps.db.getAdmin({ org: ORG, email: 'x@b.se' })).toBeNull()
   })
 
-  it('defaults notifyNewIssue to true on create, accepts false', async () => {
-    const on = await create({ deps, org: ORG, claims, body: { email: 'a@b.se', name: 'A', role: 'admin' } })
-    expect(on.data.notifyNewIssue).toBe(true)
-    const off = await create({ deps, org: ORG, claims, body: { email: 'c@b.se', name: 'C', role: 'admin', notifyNewIssue: false } })
-    expect(off.data.notifyNewIssue).toBe(false)
+  it('creates an admin who inherits both notification defaults', async () => {
+    const res = await create({ deps, org: ORG, claims, body: { email: 'a@b.se', name: 'A', role: 'admin' } })
+    expect(res.data.notifyNewIssue).toBeNull()
+    expect(res.data.notifyReply).toBeNull()
   })
 
-  it('update toggles notifyNewIssue and leaves it untouched when omitted', async () => {
-    await create({ deps, org: ORG, claims, body: { email: 'a@b.se', name: 'A', role: 'admin' } })
-    const off = await update({ deps, org: ORG, pathParameters: { email: 'a@b.se' }, body: { notifyNewIssue: false } })
-    expect(off.notifyNewIssue).toBe(false)
+  it('create accepts an explicit choice for either flag', async () => {
+    const res = await create({
+      deps,
+      org: ORG,
+      claims,
+      body: { email: 'c@b.se', name: 'C', role: 'admin', notifyNewIssue: false, notifyReply: true }
+    })
+    expect(res.data).toMatchObject({ notifyNewIssue: false, notifyReply: true })
+  })
+
+  it('update toggles each flag independently and leaves it untouched when omitted', async () => {
+    await create({ deps, org: ORG, claims, body: { email: 'a@b.se', name: 'A', role: 'admin', notifyNewIssue: true, notifyReply: true } })
+    const off = await update({ deps, org: ORG, pathParameters: { email: 'a@b.se' }, body: { notifyReply: false } })
+    expect(off).toMatchObject({ notifyNewIssue: true, notifyReply: false })
     // omitting it preserves the stored value
     const same = await update({ deps, org: ORG, pathParameters: { email: 'a@b.se' }, body: { name: 'A2' } })
-    expect(same.notifyNewIssue).toBe(false)
+    expect(same).toMatchObject({ notifyNewIssue: true, notifyReply: false })
   })
 
-  it('rejects a non-boolean notifyNewIssue', async () => {
+  it('update accepts null to hand a flag back to the org default', async () => {
+    await create({ deps, org: ORG, claims, body: { email: 'a@b.se', name: 'A', role: 'admin', notifyReply: true } })
+    const back = await update({ deps, org: ORG, pathParameters: { email: 'a@b.se' }, body: { notifyReply: null } })
+    expect(back.notifyReply).toBeNull()
+  })
+
+  it('rejects a notification flag that is neither boolean nor null', async () => {
     await expect(
       create({ deps, org: ORG, claims, body: { email: 'a@b.se', name: 'A', role: 'admin', notifyNewIssue: 'yes' } })
     ).rejects.toMatchObject({ code: 'NOTIFY_INVALID' })
+    await expect(
+      create({ deps, org: ORG, claims, body: { email: 'a@b.se', name: 'A', role: 'admin', notifyReply: 'yes' } })
+    ).rejects.toMatchObject({ code: 'NOTIFY_INVALID' })
+  })
+
+  it('rewrites a pre-split row on update so it stops carrying the legacy flag', async () => {
+    await deps.db.putAdmin({ org: ORG, admin: { email: 'old@b.se', name: 'Old', role: 'admin', notifyNewIssue: true } })
+    const next = await update({ deps, org: ORG, pathParameters: { email: 'old@b.se' }, body: { name: 'Older' } })
+    expect(next).toMatchObject({ notifyNewIssue: true, notifyReply: true })
   })
 
   it('update merges role + categories', async () => {

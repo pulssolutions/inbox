@@ -84,6 +84,27 @@ describe('nag', () => {
     expect(deps.ses.notifications.map((n) => n.to)).toEqual(['linn@acme.example'])
   })
 
+  it('reminds on the reply flag, not the new-issue one', async () => {
+    await seed(deps, openMessage())
+    await deps.db.putAdmin({
+      org: ORG,
+      admin: { email: 'boss@acme.example', name: 'Boss', role: 'superadmin', active: true, notifyNewIssue: true, notifyReply: false }
+    })
+    await runNag(deps, NOW)
+    expect(deps.ses.notifications).toHaveLength(0)
+  })
+
+  it("uses the org's reply default for a subscriber who has not chosen", async () => {
+    await seed(deps, openMessage())
+    await deps.db.putAdmin({
+      org: ORG,
+      admin: { email: 'boss@acme.example', name: 'Boss', role: 'superadmin', active: true, notifyNewIssue: null, notifyReply: null }
+    })
+    await deps.db.putSettings({ org: ORG, group: 'notify', settings: { newIssue: true, reply: true } })
+    await runNag(deps, NOW)
+    expect(deps.ses.notifications.map((n) => n.to)).toEqual(['boss@acme.example'])
+  })
+
   it('respects the notifyNewIssue opt-out for category subscribers', async () => {
     await seed(deps, openMessage())
     await deps.db.putAdmin({

@@ -17,6 +17,12 @@ export const adminKey = (org, email) => ({
   sk: String(email).toLowerCase()
 })
 
+// Org-wide settings, one row per group of them.
+export const settingsKey = (org, group) => ({
+  pk: `${org}:settings`,
+  sk: group
+})
+
 // Internal notes, one row per note, grouped under a message by SK prefix.
 export const noteKey = (org, messageId, createdAt) => ({
   pk: `${org}:note`,

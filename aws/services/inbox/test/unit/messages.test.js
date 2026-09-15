@@ -450,6 +450,49 @@ describe('messages.reply', () => {
     expect(deps.ses.notifications).toHaveLength(0)
   })
 
+  it('honours the reply flag on its own, not the new-issue one', async () => {
+    await deps.db.putMessage({ org: ORG, message: baseMessage() })
+    await deps.db.putAdmin({
+      org: ORG,
+      admin: { email: 'boss@acme.example', name: 'Boss', role: 'superadmin', active: true, notifyNewIssue: true, notifyReply: false }
+    })
+    await reply({
+      deps,
+      org: ORG,
+      pathParameters: { messageId: 'm1' },
+      body: { body: 'Svar' },
+      claims: { ...CLAIMS, email: 'kurs@acme.example', name: 'Kurs Ledare' }
+    })
+    expect(deps.ses.notifications).toHaveLength(0)
+  })
+
+  it('falls back to the org default for an admin who has not chosen', async () => {
+    await deps.db.putMessage({ org: ORG, message: baseMessage() })
+    await deps.db.putAdmin({
+      org: ORG,
+      admin: { email: 'boss@acme.example', name: 'Boss', role: 'superadmin', active: true, notifyNewIssue: null, notifyReply: null }
+    })
+    // Code default is off, so nothing goes out until the org turns it on.
+    await reply({
+      deps,
+      org: ORG,
+      pathParameters: { messageId: 'm1' },
+      body: { body: 'Svar' },
+      claims: { ...CLAIMS, email: 'kurs@acme.example', name: 'Kurs Ledare' }
+    })
+    expect(deps.ses.notifications).toHaveLength(0)
+
+    await deps.db.putSettings({ org: ORG, group: 'notify', settings: { newIssue: true, reply: true } })
+    await reply({
+      deps,
+      org: ORG,
+      pathParameters: { messageId: 'm1' },
+      body: { body: 'Svar igen' },
+      claims: { ...CLAIMS, email: 'kurs@acme.example', name: 'Kurs Ledare' }
+    })
+    expect(deps.ses.notifications.map((n) => n.to)).toEqual(['boss@acme.example'])
+  })
+
   it('does not reassign an already-assigned issue on reply', async () => {
     await deps.db.putMessage({ org: ORG, message: baseMessage({ assignee: 'linn@x.se' }) })
     const res = await reply({

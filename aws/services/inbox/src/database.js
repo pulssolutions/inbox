@@ -11,6 +11,7 @@ import {
   tenantKey,
   messageKey,
   adminKey,
+  settingsKey,
   noteKey,
   notePrefix,
   auditKey,
@@ -376,6 +377,17 @@ export class Database {
       indexName: 'gsi1'
     })
     return items.map(stripInternal)
+  }
+
+  // ---- org settings -----------------------------------------------------
+
+  async getSettings({ org, group }) {
+    const item = await this._get(settingsKey(org, group))
+    return stripInternal(item)
+  }
+
+  async putSettings({ org, group, settings }) {
+    await this._put({ ...settingsKey(org, group), ...settings })
   }
 
   // ---- audit log (append-only) -----------------------------------------
