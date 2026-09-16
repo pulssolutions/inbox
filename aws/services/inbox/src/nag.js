@@ -1,4 +1,5 @@
 import { notifyRecipients } from './notify.js'
+import { notifyDefaults } from './settings/defaults.js'
 import { strings } from './strings.js'
 
 const DAY_MS = 24 * 3600 * 1000
@@ -27,9 +28,15 @@ const isDue = (m, now) => {
 }
 
 // The assignee owns it if there is one; otherwise the whole category is on the
-// hook (same recipient rule as a new issue, opt-out included).
-const recipientsFor = (m, admins) =>
-  m.assignee ? [m.assignee] : notifyRecipients(admins, m.category)
+// hook, following the reply flag (a reminder is activity on an existing issue).
+//
+// An assignee is reminded whatever their flags say, and that is deliberate: the
+// flags govern category-wide notification, but an assignee has taken the issue
+// on and is the only person who can move it. Pinned by a test in nag.test.js.
+const recipientsFor = (m, admins, orgDefaults) =>
+  m.assignee
+    ? [m.assignee]
+    : notifyRecipients(admins, m.category, { event: 'reply', orgDefaults })
 
 const remind = async (deps, { to, orgName, message, count, now }) => {
   const root = message.threadId || message.messageId
@@ -71,10 +78,11 @@ export const runNag = async (deps, now = new Date()) => {
     scanned += messages.length
     if (!due.length) continue
     const admins = await deps.db.listAdmins({ org })
+    const orgDefaults = await notifyDefaults(deps, org)
     for (const message of due) {
       const count = remindersSent(message) + 1
       let sent = 0
-      for (const to of recipientsFor(message, admins)) {
+      for (const to of recipientsFor(message, admins, orgDefaults)) {
         try {
           await remind(deps, { to, orgName, message, count, now })
           sent += 1

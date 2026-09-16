@@ -11,6 +11,7 @@ import {
   tenantKey,
   messageKey,
   adminKey,
+  settingsKey,
   noteKey,
   notePrefix,
   auditKey,
@@ -80,7 +81,8 @@ export class Database {
     )
   }
 
-  // Change named attributes on one message in a single conditional write.
+  // Change named attributes on one item in a single write, returning the whole
+  // row as it now stands.
   //
   // Replaces read-then-put-the-whole-row, which lost writes: two agents acting
   // on one ticket in the same second each read, each wrote back their own copy,
@@ -88,8 +90,8 @@ export class Database {
   // touches only the named attributes, so concurrent changes to DIFFERENT
   // fields both survive - and it is one round trip instead of two.
   //
-  // The condition also stops an update resurrecting a row deleted in between.
-  async _updateMessage({ org, messageId, set }) {
+  // Without `condition` it upserts, which is what a config row wants.
+  async _updateAttributes({ key, set, condition }) {
     const names = {}
     const values = {}
     const assignments = []
@@ -99,19 +101,28 @@ export class Database {
       assignments.push(`#a${i} = :v${i}`)
     })
 
+    const res = await this.docClient.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: key,
+        UpdateExpression: `SET ${assignments.join(', ')}`,
+        ExpressionAttributeNames: names,
+        ExpressionAttributeValues: values,
+        ...(condition ? { ConditionExpression: condition } : {}),
+        ReturnValues: 'ALL_NEW'
+      })
+    )
+    return stripInternal(res.Attributes)
+  }
+
+  // The condition also stops an update resurrecting a row deleted in between.
+  async _updateMessage({ org, messageId, set }) {
     try {
-      const res = await this.docClient.send(
-        new UpdateCommand({
-          TableName: this.tableName,
-          Key: messageKey(org, messageId),
-          UpdateExpression: `SET ${assignments.join(', ')}`,
-          ExpressionAttributeNames: names,
-          ExpressionAttributeValues: values,
-          ConditionExpression: 'attribute_exists(pk)',
-          ReturnValues: 'ALL_NEW'
-        })
-      )
-      return stripInternal(res.Attributes)
+      return await this._updateAttributes({
+        key: messageKey(org, messageId),
+        set,
+        condition: 'attribute_exists(pk)'
+      })
     } catch (e) {
       if (e.name === 'ConditionalCheckFailedException') {
         throw new NotFoundError('MESSAGE_NOT_FOUND', `Message ${messageId} not found`)
@@ -376,6 +387,19 @@ export class Database {
       indexName: 'gsi1'
     })
     return items.map(stripInternal)
+  }
+
+  // ---- org settings -----------------------------------------------------
+
+  async getSettings({ org, group }) {
+    const item = await this._get(settingsKey(org, group))
+    return stripInternal(item)
+  }
+
+  // Upsert of only the submitted attributes: two superadmins changing different
+  // defaults at once must not overwrite each other.
+  async updateSettings({ org, group, settings }) {
+    return this._updateAttributes({ key: settingsKey(org, group), set: settings })
   }
 
   // ---- audit log (append-only) -----------------------------------------

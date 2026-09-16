@@ -28,15 +28,38 @@ const validateCreate = (body) => {
   if (!VALID_ROLES.has(body.role)) {
     throw new ValidationError('ROLE_INVALID', 'role must be superadmin or admin')
   }
-  assertNotifyFlag(body.notifyNewIssue)
+  assertNotifyFlags(body)
 }
 
-// Per-admin opt-out of new-issue/reply mail (default true). Optional everywhere.
-const assertNotifyFlag = (v) => {
-  if (v !== undefined && typeof v !== 'boolean') {
-    throw new ValidationError('NOTIFY_INVALID', 'notifyNewIssue must be a boolean')
+// Per-admin notification choices. `null` means "no choice" — the org default
+// applies — so it is a value, not an absence, and must survive a round trip.
+const NOTIFY_FLAGS = ['notifyNewIssue', 'notifyReply']
+
+const assertNotifyFlags = (body) => {
+  for (const flag of NOTIFY_FLAGS) {
+    const v = body?.[flag]
+    if (v !== undefined && v !== null && typeof v !== 'boolean') {
+      throw new ValidationError('NOTIFY_INVALID', `${flag} must be a boolean or null`)
+    }
   }
 }
+
+// Before the split, `notifyNewIssue` governed both events and an absent flag
+// meant on. A rewrite must therefore pin what the row ALREADY GETS, not write
+// null: null now means "inherit", so persisting it on an unrelated edit (a
+// rename) would silently move that admin onto an org default they never saw.
+// Only an explicit null in the body hands a flag to the org default.
+const carriedFlag = (existing, key) =>
+  existing[key] !== undefined ? existing[key] : existing.notifyNewIssue !== false
+
+const carryNotifyFlags = (existing, body) => ({
+  notifyNewIssue:
+    body?.notifyNewIssue !== undefined
+      ? body.notifyNewIssue
+      : carriedFlag(existing, 'notifyNewIssue'),
+  notifyReply:
+    body?.notifyReply !== undefined ? body.notifyReply : carriedFlag(existing, 'notifyReply')
+})
 
 const isActiveSuper = (a) => a.active !== false && a.role === 'superadmin'
 
@@ -65,7 +88,8 @@ export const create = async ({ deps, org, body, claims }) => {
     name: body.name,
     role: body.role,
     categories: normalizeCategories(body.role, body.categories),
-    notifyNewIssue: body.notifyNewIssue !== false,
+    notifyNewIssue: body.notifyNewIssue ?? null,
+    notifyReply: body.notifyReply ?? null,
     active: true,
     addedBy: claims?.email || claims?.name || 'okänd'
   }
@@ -96,7 +120,7 @@ export const update = async ({ deps, org, pathParameters, body, claims }) => {
   if (!VALID_ROLES.has(role)) {
     throw new ValidationError('ROLE_INVALID', 'role must be superadmin or admin')
   }
-  assertNotifyFlag(body?.notifyNewIssue)
+  assertNotifyFlags(body)
   const next = {
     ...existing,
     ...(body?.name !== undefined ? { name: body.name } : {}),
@@ -106,11 +130,7 @@ export const update = async ({ deps, org, pathParameters, body, claims }) => {
       role,
       body?.categories !== undefined ? body.categories : existing.categories
     ),
-    // Backfill legacy rows lacking the flag (treat as opted-in).
-    notifyNewIssue:
-      body?.notifyNewIssue !== undefined
-        ? body.notifyNewIssue
-        : existing.notifyNewIssue !== false,
+    ...carryNotifyFlags(existing, body),
     email
   }
   await assertNotLastSuperadmin(deps, org, email, next)

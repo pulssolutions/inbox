@@ -67,7 +67,7 @@ const seed = () => [
   }
 ]
 
-const state = { messages: [], notes: [], admins: [], audit: [] }
+const state = { messages: [], notes: [], admins: [], audit: [], notifyDefaults: null }
 let replyCounter = 0
 let noteCounter = 0
 
@@ -79,6 +79,7 @@ const seedAdmins = () => [
 export const resetTestApi = () => {
   state.messages = seed().map((m) => ({ state: 'open', ...m }))
   state.notes = []
+  state.notifyDefaults = null
   state.admins = seedAdmins()
   state.audit = [
     { id: 'a3', ts: '2026-06-03T13:00:00Z', actor: { email: 'boss@acme.example', name: 'Boss' }, action: 'state', targetType: 'message', targetLabel: 'Agility?', meta: { state: { from: 'open', to: 'done' } } },
@@ -288,6 +289,18 @@ const handle = async (input, init = {}) => {
 
   if (path === '/admin/audit' && method === 'GET') {
     return jsonResponse(200, state.audit)
+  }
+
+  if (path === '/admin/settings' && method === 'GET') {
+    return jsonResponse(200, {
+      notifyDefaults: { newIssue: true, reply: false, ...state.notifyDefaults }
+    })
+  }
+  if (path === '/admin/settings' && method === 'PATCH') {
+    state.notifyDefaults = { ...state.notifyDefaults, ...body.notifyDefaults }
+    return jsonResponse(200, {
+      notifyDefaults: { newIssue: true, reply: false, ...state.notifyDefaults }
+    })
   }
 
   if (path === '/admin/admins' && method === 'GET') {
