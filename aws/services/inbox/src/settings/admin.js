@@ -19,7 +19,7 @@ const validate = (defaults) => {
     throw new ValidationError('NOTIFY_INVALID', 'notifyDefaults must be an object')
   }
   for (const [event, value] of Object.entries(defaults)) {
-    if (!(event in NOTIFY_DEFAULTS)) {
+    if (!Object.hasOwn(NOTIFY_DEFAULTS, event)) {
       throw new ValidationError('NOTIFY_INVALID', `Unknown notification ${event}`)
     }
     if (typeof value !== 'boolean') {
@@ -34,9 +34,14 @@ export const get = async ({ deps, org }) => ({
 
 export const update = async ({ deps, org, body, claims }) => {
   validate(body?.notifyDefaults)
-  const stored = await deps.db.getSettings({ org, group: GROUP })
-  const notifyDefaults = resolve({ ...stored, ...body.notifyDefaults })
-  await deps.db.putSettings({ org, group: GROUP, settings: notifyDefaults })
+  // Writes only the submitted flags and answers with the row as it now stands,
+  // so a concurrent change to the other flag survives and is reported back.
+  const saved = await deps.db.updateSettings({
+    org,
+    group: GROUP,
+    settings: body.notifyDefaults
+  })
+  const notifyDefaults = resolve(saved)
   await recordAudit(deps, {
     org,
     claims,

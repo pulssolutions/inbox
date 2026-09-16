@@ -44,18 +44,21 @@ const assertNotifyFlags = (body) => {
   }
 }
 
-// Before the split, `notifyNewIssue` governed reply mail too. A row written
-// then has no `notifyReply` at all, so any rewrite carries the old value over
-// rather than handing that admin back to an org default they never saw.
+// Before the split, `notifyNewIssue` governed both events and an absent flag
+// meant on. A rewrite must therefore pin what the row ALREADY GETS, not write
+// null: null now means "inherit", so persisting it on an unrelated edit (a
+// rename) would silently move that admin onto an org default they never saw.
+// Only an explicit null in the body hands a flag to the org default.
+const carriedFlag = (existing, key) =>
+  existing[key] !== undefined ? existing[key] : existing.notifyNewIssue !== false
+
 const carryNotifyFlags = (existing, body) => ({
   notifyNewIssue:
-    body?.notifyNewIssue !== undefined ? body.notifyNewIssue : existing.notifyNewIssue ?? null,
+    body?.notifyNewIssue !== undefined
+      ? body.notifyNewIssue
+      : carriedFlag(existing, 'notifyNewIssue'),
   notifyReply:
-    body?.notifyReply !== undefined
-      ? body.notifyReply
-      : existing.notifyReply !== undefined
-        ? existing.notifyReply
-        : existing.notifyNewIssue ?? null
+    body?.notifyReply !== undefined ? body.notifyReply : carriedFlag(existing, 'notifyReply')
 })
 
 const isActiveSuper = (a) => a.active !== false && a.role === 'superadmin'

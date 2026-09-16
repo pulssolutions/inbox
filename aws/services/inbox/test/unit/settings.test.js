@@ -38,6 +38,18 @@ describe('org notification defaults', () => {
     })
   })
 
+  it('does not lose a concurrent change to the other flag', async () => {
+    // Two superadmins on the page at once, each toggling a different default.
+    // A read-then-write-the-whole-row PATCH loses whichever landed first.
+    await Promise.all([
+      update({ deps, org: ORG, claims, body: { notifyDefaults: { reply: true } } }),
+      update({ deps, org: ORG, claims, body: { notifyDefaults: { newIssue: false } } })
+    ])
+    expect(await get({ deps, org: ORG })).toEqual({
+      notifyDefaults: { newIssue: false, reply: true }
+    })
+  })
+
   it('audits the change', async () => {
     await update({ deps, org: ORG, claims, body: { notifyDefaults: { reply: true } } })
     const log = await deps.db.listAudit({ org: ORG })
@@ -53,6 +65,10 @@ describe('org notification defaults', () => {
     ).rejects.toMatchObject({ code: 'NOTIFY_INVALID' })
     await expect(
       update({ deps, org: ORG, claims, body: { notifyDefaults: { whatever: true } } })
+    ).rejects.toMatchObject({ code: 'NOTIFY_INVALID' })
+    // Inherited Object.prototype keys are not events either.
+    await expect(
+      update({ deps, org: ORG, claims, body: { notifyDefaults: { constructor: true } } })
     ).rejects.toMatchObject({ code: 'NOTIFY_INVALID' })
   })
 })

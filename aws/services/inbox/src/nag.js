@@ -28,8 +28,11 @@ const isDue = (m, now) => {
 }
 
 // The assignee owns it if there is one; otherwise the whole category is on the
-// hook. A reminder is activity on an existing issue, so it follows the reply
-// flag — an assignee is told regardless; the issue is theirs.
+// hook, following the reply flag (a reminder is activity on an existing issue).
+//
+// An assignee is reminded whatever their flags say, and that is deliberate: the
+// flags govern category-wide notification, but an assignee has taken the issue
+// on and is the only person who can move it. Pinned by a test in nag.test.js.
 const recipientsFor = (m, admins, orgDefaults) =>
   m.assignee
     ? [m.assignee]

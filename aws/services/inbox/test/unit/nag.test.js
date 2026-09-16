@@ -100,9 +100,23 @@ describe('nag', () => {
       org: ORG,
       admin: { email: 'boss@acme.example', name: 'Boss', role: 'superadmin', active: true, notifyNewIssue: null, notifyReply: null }
     })
-    await deps.db.putSettings({ org: ORG, group: 'notify', settings: { newIssue: true, reply: true } })
+    await deps.db.updateSettings({ org: ORG, group: 'notify', settings: { reply: true } })
     await runNag(deps, NOW)
     expect(deps.ses.notifications.map((n) => n.to)).toEqual(['boss@acme.example'])
+  })
+
+  it('still reminds the assignee, whatever their reply flag says', async () => {
+    // Deliberate exception, unchanged by the flag split: the flags govern
+    // category-wide notification, but an assignee has taken the issue on and is
+    // the only person who can move it. Opting out of the category's mail is not
+    // opting out of your own overdue work.
+    await seed(deps, openMessage({ assignee: 'linn@acme.example' }))
+    await deps.db.putAdmin({
+      org: ORG,
+      admin: { email: 'linn@acme.example', name: 'Linn', role: 'superadmin', active: true, notifyNewIssue: false, notifyReply: false }
+    })
+    await runNag(deps, NOW)
+    expect(deps.ses.notifications.map((n) => n.to)).toEqual(['linn@acme.example'])
   })
 
   it('respects the notifyNewIssue opt-out for category subscribers', async () => {

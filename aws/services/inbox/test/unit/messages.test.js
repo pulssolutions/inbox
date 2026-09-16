@@ -482,7 +482,7 @@ describe('messages.reply', () => {
     })
     expect(deps.ses.notifications).toHaveLength(0)
 
-    await deps.db.putSettings({ org: ORG, group: 'notify', settings: { newIssue: true, reply: true } })
+    await deps.db.updateSettings({ org: ORG, group: 'notify', settings: { reply: true } })
     await reply({
       deps,
       org: ORG,

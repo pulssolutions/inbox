@@ -140,6 +140,16 @@ const NOTIFY_EVENTS = [
 const toChoice = (v) => (v === true ? 'on' : v === false ? 'off' : 'inherit')
 const fromChoice = (v) => (v === 'on' ? true : v === 'off' ? false : null)
 
+// A row written before the flags were split carries neither key, or only the
+// old one — and back then that one governed both events, absent meaning on.
+// Show what the admin ALREADY GETS, so saving an unrelated edit pins it rather
+// than moving them onto an org default they never chose. Mirrors carryNotifyFlags
+// in the service; the server applies the same rule when the field is omitted.
+const storedChoice = (admin, field) =>
+  admin[field] === undefined
+    ? toChoice(admin.notifyNewIssue !== false)
+    : toChoice(admin[field])
+
 const blankForm = () => ({
   email: '',
   name: '',
@@ -179,7 +189,7 @@ const openEdit = (a) => {
     role: a.role,
     categories: (a.categories || []).join(', '),
     notify: Object.fromEntries(
-      NOTIFY_EVENTS.map((e) => [e.key, toChoice(a[e.field])])
+      NOTIFY_EVENTS.map((e) => [e.key, storedChoice(a, e.field)])
     )
   })
   store.error.save = null

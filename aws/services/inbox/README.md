@@ -28,6 +28,7 @@ no per-tenant infrastructure.
 | Note | `{org}:note` | `{messageId}#{createdAt}` |
 | Admin | `{org}:admin` | email |
 | Audit | `{org}:audit` | `{ts}#{id}` |
+| Settings | `{org}:settings` | group (`notify`) |
 
 `gsi1` does two jobs. For messages, `{org}:message:{box}` keyed by
 `{lastActivityAt}#{id}` — a descending query is the inbox list, and bumping
@@ -54,9 +55,12 @@ All routes are capability-gated from the signed claim.
 | `DELETE /admin/messages/{id}` (archived only) | `inbox.write` |
 | `GET/POST/PATCH/DELETE /admin/admins` | `admins.*` |
 | `GET /admin/audit` | `audit.read` |
+| `GET /admin/settings` | `inbox.read` |
+| `PATCH /admin/settings` (`notifyDefaults`) | `admins.write` |
 
 API Gateway declares only per-method proxy routes, so **adding an endpoint needs
-no CloudFormation change** — add a line to `buildRoutes` in `app.js`.
+no CloudFormation change** — add a line to `buildRoutes` in `app.js`. There is no
+PUT proxy route, so a replace-style endpoint uses PATCH.
 
 Every handler touching a message goes through `requireMessage`, which applies
 category scoping and returns 404 rather than 403 so existence stays hidden. If

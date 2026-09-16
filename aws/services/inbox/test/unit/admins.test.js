@@ -142,6 +142,18 @@ describe('admins CRUD', () => {
     expect(next).toMatchObject({ notifyNewIssue: true, notifyReply: true })
   })
 
+  it('pins what an older flagless row already got instead of handing it to the org default', async () => {
+    await deps.db.putAdmin({ org: ORG, admin: { email: 'ancient@b.se', name: 'Ancient', role: 'admin' } })
+    const next = await update({ deps, org: ORG, pathParameters: { email: 'ancient@b.se' }, body: { name: 'Still here' } })
+    expect(next).toMatchObject({ notifyNewIssue: true, notifyReply: true })
+  })
+
+  it('an explicit null still hands a flag to the org default', async () => {
+    await deps.db.putAdmin({ org: ORG, admin: { email: 'old@b.se', name: 'Old', role: 'admin', notifyNewIssue: true } })
+    const next = await update({ deps, org: ORG, pathParameters: { email: 'old@b.se' }, body: { notifyReply: null } })
+    expect(next.notifyReply).toBeNull()
+  })
+
   it('update merges role + categories', async () => {
     await create({ deps, org: ORG, claims, body: { email: 'a@b.se', name: 'A', role: 'admin', categories: ['kurser'] } })
     const res = await update({
