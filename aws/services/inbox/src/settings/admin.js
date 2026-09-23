@@ -18,6 +18,11 @@ const validate = (defaults) => {
   if (!defaults || typeof defaults !== 'object' || Array.isArray(defaults)) {
     throw new ValidationError('NOTIFY_INVALID', 'notifyDefaults must be an object')
   }
+  // An empty object asks DynamoDB to SET nothing, which it rejects as a syntax
+  // error deep in the update - a 500 for what is a malformed request.
+  if (Object.keys(defaults).length === 0) {
+    throw new ValidationError('NOTIFY_INVALID', 'notifyDefaults must name at least one notification')
+  }
   for (const [event, value] of Object.entries(defaults)) {
     if (!Object.hasOwn(NOTIFY_DEFAULTS, event)) {
       throw new ValidationError('NOTIFY_INVALID', `Unknown notification ${event}`)

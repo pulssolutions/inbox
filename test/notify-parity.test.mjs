@@ -25,14 +25,31 @@ const inlineRule = () => {
 }
 
 // Every shape a row can be in: pre-split (no notifyReply key), inheriting
-// (null), and each explicit choice.
-const ROWS = [undefined, null, true, false].flatMap((notifyNewIssue) =>
-  [undefined, null, true, false].map((notifyReply) => {
-    const a = { email: 'a@x.se', role: 'superadmin', categories: [] }
-    if (notifyNewIssue !== undefined) a.notifyNewIssue = notifyNewIssue
-    if (notifyReply !== undefined) a.notifyReply = notifyReply
-    return a
-  })
+// (null), and each explicit choice - crossed with the things that decide
+// whether a row is even a candidate. Holding role, categories and active
+// fixed made the flag rule the only thing under test: the category scoping
+// and the active check could both be deleted from the inline copy with every
+// assertion still passing.
+const WHO = [
+  { role: 'superadmin', categories: [] },
+  { role: 'superadmin', categories: ['kurser'] },
+  { role: 'admin', categories: ['kurser'] },
+  { role: 'admin', categories: ['annat'] },
+  { role: 'admin', categories: [] },
+  { role: 'admin' },
+  { role: 'admin', categories: ['kurser'], active: false },
+  { role: 'superadmin', categories: [], active: false }
+]
+
+const ROWS = WHO.flatMap((who) =>
+  [undefined, null, true, false].flatMap((notifyNewIssue) =>
+    [undefined, null, true, false].map((notifyReply) => {
+      const a = { email: 'a@x.se', ...who }
+      if (notifyNewIssue !== undefined) a.notifyNewIssue = notifyNewIssue
+      if (notifyReply !== undefined) a.notifyReply = notifyReply
+      return a
+    })
+  )
 )
 
 const ORG_DEFAULTS = [undefined, {}, { newIssue: false }, { reply: true }, { newIssue: false, reply: true }]

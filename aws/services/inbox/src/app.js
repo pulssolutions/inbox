@@ -35,10 +35,11 @@ export const buildRoutes = () => ({
 
   'GET /admin/audit': wrapAdmin('audit.read', audit.list),
 
-  // Read is open to every admin (the Admins form labels each personal choice
-  // with the default it inherits); only a superadmin may change it. PATCH, not
-  // PUT: the API has no PUT proxy route, and this merges rather than replaces.
-  'GET /admin/settings': wrapAdmin('inbox.read', settings.get),
+  // Superadmin either way: the only screen that renders this is the Admins
+  // page, itself gated on admins.read, so a wider read reaches nobody who
+  // could use it. PATCH, not PUT: the API has no PUT proxy route, and this
+  // merges rather than replaces.
+  'GET /admin/settings': wrapAdmin('admins.read', settings.get),
   'PATCH /admin/settings': wrapAdmin('admins.write', settings.update)
 })
 

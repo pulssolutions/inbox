@@ -71,4 +71,13 @@ describe('org notification defaults', () => {
       update({ deps, org: ORG, claims, body: { notifyDefaults: { constructor: true } } })
     ).rejects.toMatchObject({ code: 'NOTIFY_INVALID' })
   })
+
+  it('rejects an empty notifyDefaults rather than building an empty update', async () => {
+    // DynamoDB answers "Invalid UpdateExpression ... near: SET" to an update
+    // that sets nothing, which surfaced as a 500 for a malformed request. The
+    // fake accepts it, so only this guard catches it.
+    await expect(
+      update({ deps, org: ORG, claims, body: { notifyDefaults: {} } })
+    ).rejects.toMatchObject({ code: 'NOTIFY_INVALID' })
+  })
 })
