@@ -199,13 +199,10 @@ const stageBrandAssets = (web) => {
   // otherwise publish the first customer's logo at /brand/* on the second
   // customer's site.
   if (!dryRun) rmSync(dest, { recursive: true, force: true })
+  // The directory is ignored from the repo root rather than by a .gitignore of
+  // its own - Vite copies that file into the build too, and it would be served
+  // from the public site bucket.
   mkdirSync(dest, { recursive: true })
-  if (!dryRun) {
-    writeFileSync(
-      resolve(dest, '.gitignore'),
-      '# Staged from the deployment profile at build time.\n*\n!.gitignore\n'
-    )
-  }
   const out = {}
   for (const [key, file] of [['logo', 'logo.png'], ['logoDark', 'logo-dark.png']]) {
     const rel = profile.brand?.[key]
@@ -320,6 +317,14 @@ for (const stack of wanted) {
       if (bucket && existsSync(site)) {
         aws(['s3', 'sync', site, `s3://${bucket}/`, '--delete', '--only-show-errors'])
         say(`   uploaded ${site} -> ${bucket}`)
+        // The distribution has no cache policy, so it takes CloudFront's 24h
+        // default TTL - index.html included. Without this the deploy is
+        // invisible until tomorrow.
+        const distributionId = stackOutput('web', 'CloudFrontDistributionId')
+        if (distributionId) {
+          aws(['cloudfront', 'create-invalidation', '--distribution-id', distributionId, '--paths', '/*'])
+          say(`   invalidated ${distributionId}`)
+        }
       } else if (bucket) {
         say(`   nothing to upload - build the app first (cd aws/web/inbox && yarn build)`)
       }

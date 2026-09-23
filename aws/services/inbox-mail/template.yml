@@ -150,6 +150,9 @@ Resources:
   # ---- inbound storage ---------------------------------------------------
   InboundBucket:
     Type: AWS::S3::Bucket
+    # Raw inbound MIME, kept for its lifecycle window; not rebuildable.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       BucketName: !Sub "${ProjectPrefix}-inbox-mail-${Environment}-${AWS::AccountId}-${AWS::Region}"
       PublicAccessBlockConfiguration:

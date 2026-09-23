@@ -10,3 +10,6 @@ site/
 
 # Claude Code scheduled-task state - runtime only.
 .claude/
+
+# Brand artwork staged from the deployment profile at build time.
+aws/web/inbox/public/brand/
