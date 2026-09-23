@@ -199,13 +199,10 @@ const stageBrandAssets = (web) => {
   // otherwise publish the first customer's logo at /brand/* on the second
   // customer's site.
   if (!dryRun) rmSync(dest, { recursive: true, force: true })
+  // The directory is ignored from the repo root rather than by a .gitignore of
+  // its own - Vite copies that file into the build too, and it would be served
+  // from the public site bucket.
   mkdirSync(dest, { recursive: true })
-  if (!dryRun) {
-    writeFileSync(
-      resolve(dest, '.gitignore'),
-      '# Staged from the deployment profile at build time.\n*\n!.gitignore\n'
-    )
-  }
   const out = {}
   for (const [key, file] of [['logo', 'logo.png'], ['logoDark', 'logo-dark.png']]) {
     const rel = profile.brand?.[key]
@@ -320,6 +317,14 @@ for (const stack of wanted) {
       if (bucket && existsSync(site)) {
         aws(['s3', 'sync', site, `s3://${bucket}/`, '--delete', '--only-show-errors'])
         say(`   uploaded ${site} -> ${bucket}`)
+        // The distribution has no cache policy, so it takes CloudFront's 24h
+        // default TTL - index.html included. Without this the deploy is
+        // invisible until tomorrow.
+        const distributionId = stackOutput('web', 'CloudFrontDistributionId')
+        if (distributionId) {
+          aws(['cloudfront', 'create-invalidation', '--distribution-id', distributionId, '--paths', '/*'])
+          say(`   invalidated ${distributionId}`)
+        }
       } else if (bucket) {
         say(`   nothing to upload - build the app first (cd aws/web/inbox && yarn build)`)
       }
@@ -327,10 +332,21 @@ for (const stack of wanted) {
       // will reject logins from any origin it has not been told about, so this
       // must happen even on a partial run - fall back to the code already
       // deployed rather than skipping it.
-      code = code || existingServiceCode()
-      if (cloudfrontDomain && code) {
-        say(`\n== ${stackName('inbox')} (second pass: WebAppUrl=https://${cloudfrontDomain})`)
-        deployStack('inbox', code, { cloudfrontDomain })
+      //
+      // Only when it would actually change something. This pass re-deploys a
+      // stack it does not own, carrying whatever code is already on it, so a
+      // web deploy running beside a service deploy could write the OLD code
+      // key back over the new one - green everywhere, two-week-old Lambda.
+      // In the steady state the URL is already right and there is nothing to do.
+      const webAppUrl = cloudfrontDomain ? `https://${cloudfrontDomain}` : ''
+      if (webAppUrl && stackParameter('inbox', 'WebAppUrl') === webAppUrl) {
+        say(`   ${stackName('inbox')} already knows WebAppUrl=${webAppUrl}`)
+      } else {
+        code = code || existingServiceCode()
+        if (cloudfrontDomain && code) {
+          say(`\n== ${stackName('inbox')} (second pass: WebAppUrl=${webAppUrl})`)
+          deployStack('inbox', code, { cloudfrontDomain })
+        }
       }
     }
   }

@@ -1,6 +1,7 @@
 # License
 
-License goes here
+BSD 2-Clause "Simplified" License (the FreeBSD license), Copyright (c) 2026
+Puls Solutions AB. Full text in [LICENSE](LICENSE).
 
 # inbox
 

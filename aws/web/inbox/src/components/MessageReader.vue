@@ -197,6 +197,9 @@
               : `Svara ${nameOf(message.from)}…`
           "
         />
+        <p v-if="sendError" class="composer-error" data-testid="composer-error" role="alert">
+          {{ sendError }}
+        </p>
         <div class="composer-bar">
           <span class="topbar-spacer" />
           <button
@@ -352,6 +355,7 @@ const closeAfter = ref(true) // default: send and close
 const menuOpen = ref(false)
 const composerOpen = ref(false) // mobile: composer hidden until opened
 const confirmOpen = ref(false) // "Skicka och stäng" confirmation dialog
+const sendError = ref('')
 
 watch(
   () => props.message?.messageId,
@@ -361,6 +365,7 @@ watch(
     menuOpen.value = false
     composerOpen.value = false
     confirmOpen.value = false
+    sendError.value = ''
   }
 )
 
@@ -414,14 +419,25 @@ const doSend = () => {
   const text = draft.value.trim()
   if (!text) return
   menuOpen.value = false
-  composerOpen.value = false
   confirmOpen.value = false
-  if (mode.value === 'note') {
-    emit('add-note', { text })
-  } else {
-    emit('reply', { body: text, close: closeAfter.value })
+  sendError.value = ''
+  // The draft is only cleared once the send has actually succeeded. Clearing
+  // it up front lost the agent's text whenever SES rejected the mail, and the
+  // failure was never shown anywhere.
+  const done = (ok, message) => {
+    if (ok) {
+      draft.value = ''
+      composerOpen.value = false
+      return
+    }
+    sendError.value =
+      message || 'Det gick inte att skicka. Texten är kvar - försök igen.'
   }
-  draft.value = ''
+  if (mode.value === 'note') {
+    emit('add-note', { text, done })
+  } else {
+    emit('reply', { body: text, close: closeAfter.value, done })
+  }
 }
 
 const choose = (close) => {
@@ -435,6 +451,14 @@ const choose = (close) => {
   color: var(--fg-3);
   font-size: 0.85rem;
   font-weight: 400;
+}
+.composer-error {
+  margin: 0.5rem 0 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius, 6px);
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+  font-size: 0.9rem;
 }
 .composer-mobile-bar {
   display: flex;

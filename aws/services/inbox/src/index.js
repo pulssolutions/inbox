@@ -37,6 +37,9 @@ const buildDefaultDeps = () => {
     mailStore,
     cognito,
     sender: process.env.SENDER_EMAIL,
+    // Every domain this environment receives on, so a reply can go back from
+    // the one the customer actually addressed.
+    mailDomains: (process.env.MAIL_DOMAINS || '').split(',').map((d) => d.trim()).filter(Boolean),
     webBaseUrl: process.env.WEB_BASE_URL
   }
 }

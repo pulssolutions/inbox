@@ -2,7 +2,8 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   Inbox parse Lambda. Invoked by the inbox-mail
   router (a singleton in eu-west-1) with an SES event for a single inbound
-  message. Resolves the tenant from the recipient domain, writes a message
+  message. Resolves the tenant from the first recipient - across To, then Cc,
+  then the envelope - whose domain has an ALL:tenant row, writes a message
   index row to this environment's inbox table in eu-north-1, threads replies,
   and emails the responsible admins. Raw MIME is already stored in S3 by the
   router stack's SES receipt rule; this Lambda only references the S3 key.
@@ -397,6 +398,38 @@ Resources:
             return null
           }
 
+          // --- recipient pick ---
+          // Which address a message is FOR. Only the first To: used to count,
+          // so a customer who wrote to a colleague and Cc'd support - ordinary
+          // traffic - resolved to the colleague's domain and was dropped.
+          // Ours is the first address, across To then Cc then the envelope,
+          // whose domain has a tenant row. Headers are attacker-controlled, so
+          // an address only ever counts by matching the tenant allowlist.
+          const pickRecipient = async (headers, envelope, resolve) => {
+            const addresses = [
+              ...(Array.isArray(headers.to) ? headers.to : []),
+              ...(Array.isArray(headers.cc) ? headers.cc : []),
+              ...envelope
+            ]
+            const seen = new Map()
+            for (const address of addresses) {
+              const { local, domain } = splitAddress(address)
+              if (!domain) continue
+              if (!seen.has(domain)) seen.set(domain, await resolve(domain))
+              const tenant = seen.get(domain)
+              if (tenant) return { address, category: local || 'unknown', tenant }
+            }
+            // Nothing of ours in it. Report the address it was sent to anyway,
+            // so the drop names something recognisable.
+            const first = addresses[0] || ''
+            return {
+              address: first,
+              category: splitAddress(first).local || 'unknown',
+              tenant: null
+            }
+          }
+          // --- end recipient pick ---
+
           // Message-ID tokens referenced by a reply (In-Reply-To + References).
           const referencedIds = (headers) => {
             const ids = []
@@ -506,13 +539,13 @@ Resources:
               const envelope =
                 (r.ses.receipt && r.ses.receipt.recipients) || mail.destination || []
               // Original recipient, preserved in the To: header when mail was forwarded.
-              const toHeader = (h.to && h.to[0]) || envelope[0] || ''
-              const { local, domain } = splitAddress(toHeader)
-              const category = local || 'unknown'
+              const picked = await pickRecipient(h, envelope, resolveTenant)
+              const toHeader = picked.address
+              const category = picked.category
               const from = (h.from && h.from.join(', ')) || mail.source
               const receivedAt = mail.timestamp || new Date().toISOString()
               const s3Key = PREFIX + mail.messageId
-              const tenant = await resolveTenant(domain)
+              const tenant = picked.tenant
               const org = tenant ? tenant.org : null
 
               if (org) {
