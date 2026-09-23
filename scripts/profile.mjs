@@ -97,7 +97,14 @@ export const envConfig = (p, env = 'dev') => {
       hostedZoneId: o.web?.hostedZoneId ?? p.web?.hostedZoneId ?? ''
     },
     api: { hostedZoneId: o.api?.hostedZoneId ?? p.api?.hostedZoneId ?? '' },
-    senderLocalPart: o.senderLocalPart || p.senderLocalPart || 'support'
+    senderLocalPart: o.senderLocalPart || p.senderLocalPart || 'support',
+    // What the environment SENDS as, which is not the same question as what it
+    // receives on. SES will only send from a verified identity - Cognito
+    // refuses to create a user pool without one - while a receive domain needs
+    // no verification at all. Defaults to the first mail domain, which is right
+    // whenever the domain is ours; override it to listen on a domain whose DNS
+    // someone else publishes.
+    senderDomain: o.senderDomain ?? p.senderDomain ?? ''
   }
 }
 
@@ -178,6 +185,9 @@ export const validate = (p) => {
         claimedBy.set(domain, env)
       }
     }
+    if (!isBlank(c.senderDomain) && !DOMAIN.test(c.senderDomain)) {
+      errors.push(`environments.${env}.senderDomain "${c.senderDomain}" is not a domain`)
+    }
     if (isBlank(c.web.domain) && !isBlank(c.web.hostedZoneId)) {
       errors.push(`environments.${env}.web.hostedZoneId set but that environment has no web.domain`)
     }
@@ -194,6 +204,9 @@ export const derive = (p, env) => {
   // The domain this environment sends and verifies as. Extra inbound domains
   // are received but never sent from, so one of them has to be the identity.
   const primaryMailDomain = c.mailDomains[0] || p.mailDomain
+  // Sending is not exclusive the way receiving is: several environments may
+  // share one verified identity.
+  const senderDomain = c.senderDomain || primaryMailDomain
   return {
     mailBucket: `${p.name}-inbox-mail-${env}-${p.accountId}-${p.region}`,
     webBucket: `${p.name}-inbox-web-${env}-${p.accountId}`,
@@ -207,8 +220,9 @@ export const derive = (p, env) => {
     ruleName: `${p.name}-inbox-${env}`,
     mailDomains: c.mailDomains,
     primaryMailDomain,
-    sesIdentityArn: `arn:aws:ses:${p.region}:${p.accountId}:identity/${primaryMailDomain}`,
-    senderEmail: `${c.senderLocalPart}@${primaryMailDomain}`,
+    senderDomain,
+    sesIdentityArn: `arn:aws:ses:${p.region}:${p.accountId}:identity/${senderDomain}`,
+    senderEmail: `${c.senderLocalPart}@${senderDomain}`,
     deployRoleArn: `arn:aws:iam::${p.accountId}:role/${p.name}-github-actions-deploy`
   }
 }

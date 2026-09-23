@@ -323,3 +323,59 @@ test('a $comment inside the map is not an environment', () => {
 test('an env absent from the environments map is refused', () => {
   assert.throws(() => parametersFor(multi(), 'inbox', 'staging'), /not listed/)
 })
+
+// ------------------------------------------------------------ sender domain
+//
+// What an environment RECEIVES on and what it SENDS as are independent. SES
+// demands a verified identity to send from - Cognito will not even create a
+// user pool without one - while a receive domain needs no verification at all.
+// Tying them together made an environment undeployable until someone else
+// published DNS for a domain it only wanted to listen on.
+
+test('an environment sends from its first mail domain by default', () => {
+  const p = { ...base(), environments: { dev: { mailDomains: ['a.example', 'b.example'] } } }
+  const d = derive(p, 'dev')
+  assert.equal(d.senderEmail, 'support@a.example')
+  assert.equal(d.sesIdentityArn, 'arn:aws:ses:eu-north-1:111122223333:identity/a.example')
+})
+
+test('senderDomain overrides what it sends as, without changing what it receives', () => {
+  const p = {
+    ...base(),
+    environments: {
+      dev: { mailDomains: ['unverified.example'], senderDomain: 'verified.example' }
+    }
+  }
+  assert.deepEqual(validate(p), [])
+  const d = derive(p, 'dev')
+  assert.equal(d.senderEmail, 'support@verified.example')
+  assert.equal(d.sesIdentityArn, 'arn:aws:ses:eu-north-1:111122223333:identity/verified.example')
+  assert.deepEqual(d.mailDomains, ['unverified.example'], 'receiving is untouched')
+  assert.equal(parametersFor(p, 'inbox-mail', 'dev').RecipientDomains, 'unverified.example')
+  assert.equal(parametersFor(p, 'inbox', 'dev').SenderEmail, 'support@verified.example')
+})
+
+test('two environments may send as the same domain', () => {
+  // Only RECEIVING is exclusive - one rule set, first match wins. Nothing
+  // stops two environments sending from one verified identity.
+  const p = {
+    ...base(),
+    environments: {
+      dev: { mailDomains: ['a.example'], senderDomain: 'shared.example' },
+      www: { mailDomains: ['b.example'], senderDomain: 'shared.example' }
+    }
+  }
+  assert.deepEqual(validate(p), [])
+  assert.equal(derive(p, 'dev').senderEmail, 'support@shared.example')
+  assert.equal(derive(p, 'www').senderEmail, 'support@shared.example')
+})
+
+test('a senderDomain that is not a domain is rejected', () => {
+  const p = { ...base(), environments: { dev: { senderDomain: 'not a domain' } } }
+  assert.match(validate(p).join('\n'), /environments\.dev\.senderDomain/)
+})
+
+test('senderDomain can also be set once at the top level', () => {
+  const p = { ...base(), senderDomain: 'verified.example', environments: { dev: {} } }
+  assert.equal(derive(p, 'dev').senderEmail, 'support@verified.example')
+})

@@ -118,10 +118,25 @@ Here `dev` gets its own hostname and answers only for `acme-test.example`;
 `www` inherits `inbox.acme.example` from the top level and answers for two
 domains. An environment that overrides nothing inherits everything.
 
-The first domain in `mailDomains` is the environment's identity: it is what the
-inbox sends from, and the one whose DNS the stack manages when
+The first domain in `mailDomains` is the environment's identity by default: it
+is what the inbox sends from, and the one whose DNS the stack manages when
 `mail.hostedZoneId` is set. Additional domains are received only — verify their
 SES identities and publish their MX records yourself.
+
+**Sending and receiving are separate questions.** SES sends only from a
+*verified* identity — Cognito will not even create a user pool without one —
+while a receive domain needs no verification at all. An environment that wants
+to listen on a domain whose DNS somebody else publishes sets `senderDomain` to
+something it can actually send as:
+
+```jsonc
+"www": {
+  "mailDomains": ["mail.acme.example"],   // received; verify when you can
+  "senderDomain": "acme-inbox.example"    // sent from; verified today
+}
+```
+
+Unlike `mailDomains`, `senderDomain` may be shared: only receiving is exclusive.
 
 **No domain may appear in two environments,** and `profile.mjs --check` refuses
 a profile where one does. Every environment's rule lives in the same
