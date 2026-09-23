@@ -510,6 +510,22 @@ const generateId = () => {
   return `reply-${ts}-${randomBytes(4).toString('hex')}`
 }
 
+// Which of a message's recipients is one of ours, as a bare lowercase domain.
+// `to` carries whatever the sender put there - display names, people cc-ed,
+// addresses at domains we have never owned - so only a configured domain is
+// ever returned. Without configured domains this yields nothing and the caller
+// keeps its previous behaviour.
+const addressedDomain = (to, mailDomains) => {
+  const ours = (mailDomains || []).map((d) => String(d).trim().toLowerCase()).filter(Boolean)
+  if (!ours.length) return null
+  for (const entry of Array.isArray(to) ? to : [to]) {
+    const address = String(entry || '').match(/<([^>]*)>/)?.[1] ?? String(entry || '')
+    const domain = address.split('@')[1]?.trim().toLowerCase()
+    if (domain && ours.includes(domain)) return domain
+  }
+  return null
+}
+
 export const reply = async ({ deps, org, pathParameters, body, claims }) => {
   const messageId = pathParameters?.messageId
   const original = await requireMessage(deps, org, messageId, claims)
@@ -525,8 +541,14 @@ export const reply = async ({ deps, org, pathParameters, body, claims }) => {
   // same inbox (kurser@ -> category kurser). Display name names the club + category.
   const senderDomain = String(deps.sender || '').split('@')[1]
   const category = original.category
+  // Answer from the domain they actually wrote to. An environment can receive
+  // on several domains, and being answered from a different one than you
+  // addressed reads as a different company - or as phishing. Safe because SES
+  // only accepts inbound mail for a VERIFIED identity, so every domain we can
+  // receive on is one we may legitimately send as.
+  const fromDomain = addressedDomain(original.to, deps.mailDomains) || senderDomain
   const fromAddress =
-    category && senderDomain ? `${category}@${senderDomain}` : deps.sender
+    category && fromDomain ? `${category}@${fromDomain}` : deps.sender
   // Club display name comes from the signed tenant claim (same source as admin
   // notifications), so the master serves any club with nothing hardcoded.
   const clubName = orgName(claims, org)

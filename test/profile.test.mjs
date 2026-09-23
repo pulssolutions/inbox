@@ -326,11 +326,13 @@ test('an env absent from the environments map is refused', () => {
 
 // ------------------------------------------------------------ sender domain
 //
-// What an environment RECEIVES on and what it SENDS as are independent. SES
-// demands a verified identity to send from - Cognito will not even create a
-// user pool without one - while a receive domain needs no verification at all.
-// Tying them together made an environment undeployable until someone else
-// published DNS for a domain it only wanted to listen on.
+// What an environment RECEIVES on and what it SENDS as are independent. Both
+// want a verified identity - SES receives for a domain only once it is
+// verified - but they need not be the SAME domain, and the sending one can be
+// verified long before the receiving one exists. Cognito refuses to create a
+// user pool whose sender is unverified, so tying the two together made an
+// environment undeployable until someone else published DNS for a domain it
+// only wanted to listen on.
 
 test('an environment sends from its first mail domain by default', () => {
   const p = { ...base(), environments: { dev: { mailDomains: ['a.example', 'b.example'] } } }
@@ -378,4 +380,10 @@ test('a senderDomain that is not a domain is rejected', () => {
 test('senderDomain can also be set once at the top level', () => {
   const p = { ...base(), senderDomain: 'verified.example', environments: { dev: {} } }
   assert.equal(derive(p, 'dev').senderEmail, 'support@verified.example')
+})
+
+test('the service is told every domain its environment receives on', () => {
+  // So reply() can answer from the domain the customer actually wrote to.
+  const p = { ...base(), environments: { dev: { mailDomains: ['a.example', 'b.example'] } } }
+  assert.equal(parametersFor(p, 'inbox', 'dev').MailDomains, 'a.example,b.example')
 })
