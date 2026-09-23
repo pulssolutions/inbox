@@ -96,6 +96,13 @@ node scripts/seed-admin.mjs --env dev --org <org.slug> --email <you>
 Without the tenant row, inbound mail is logged and dropped — the `ALL:tenant`
 rows are the allowlist.
 
+Seed the row for the domain **customers write to**, which is not always the
+domain SES receives on. Where mail is forwarded in — an apex whose MX belongs
+to someone else, delivering to a subdomain listed in `mailDomains` — the
+recipient is resolved from the `To:` header, so the row must name the apex.
+Seed the subdomain instead and SES accepts mail that parse then drops: no
+bounce, no ticket, one log line.
+
 ## 7. SES production access
 
 Until granted, sending only reaches verified addresses; receiving is

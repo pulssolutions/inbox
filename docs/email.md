@@ -22,8 +22,18 @@ From one inbound message parse derives:
 - **thread** — ids from `In-Reply-To` and `References`, matched against the
   `mailMessageId` values stored on previous outbound messages.
 
-Parse prefers the `To:` header over the envelope recipient, so a deployment fed
-by a forwarding rule still sees the address the sender actually used.
+"The recipient" is the first address — across `To`, then `Cc`, then the
+envelope — whose domain has a tenant row. Taking only the first `To:` dropped
+every message that merely Cc'd a support address, which is ordinary traffic.
+Headers are attacker-controlled, so an address counts only by matching the
+allowlist.
+
+Preferring the headers over the envelope means a deployment fed by a
+forwarding rule sees the address the sender actually used. It also means the
+tenant row must name **that** domain: forward `hello@example.com` to
+`hello@inbox.example.com` and the row belongs to `example.com`, while
+`mailDomains` — what the receipt rule accepts — names `inbox.example.com`.
+The two lists are not the same list.
 
 ## Sending
 
