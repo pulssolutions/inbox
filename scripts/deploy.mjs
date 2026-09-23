@@ -332,10 +332,21 @@ for (const stack of wanted) {
       // will reject logins from any origin it has not been told about, so this
       // must happen even on a partial run - fall back to the code already
       // deployed rather than skipping it.
-      code = code || existingServiceCode()
-      if (cloudfrontDomain && code) {
-        say(`\n== ${stackName('inbox')} (second pass: WebAppUrl=https://${cloudfrontDomain})`)
-        deployStack('inbox', code, { cloudfrontDomain })
+      //
+      // Only when it would actually change something. This pass re-deploys a
+      // stack it does not own, carrying whatever code is already on it, so a
+      // web deploy running beside a service deploy could write the OLD code
+      // key back over the new one - green everywhere, two-week-old Lambda.
+      // In the steady state the URL is already right and there is nothing to do.
+      const webAppUrl = cloudfrontDomain ? `https://${cloudfrontDomain}` : ''
+      if (webAppUrl && stackParameter('inbox', 'WebAppUrl') === webAppUrl) {
+        say(`   ${stackName('inbox')} already knows WebAppUrl=${webAppUrl}`)
+      } else {
+        code = code || existingServiceCode()
+        if (cloudfrontDomain && code) {
+          say(`\n== ${stackName('inbox')} (second pass: WebAppUrl=${webAppUrl})`)
+          deployStack('inbox', code, { cloudfrontDomain })
+        }
       }
     }
   }
