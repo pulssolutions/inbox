@@ -160,7 +160,7 @@ describe('MessageReader', () => {
     expect(w.emitted('reply')).toBeUndefined()
     expect(w.find('[data-testid="confirm-send-close-body"]').exists()).toBe(true)
     await w.find('[data-testid="confirm-send-close"]').trigger('click')
-    expect(w.emitted('reply')[0]).toEqual([{ body: 'Tack!', close: true }])
+    expect(w.emitted('reply')[0][0]).toMatchObject({ body: 'Tack!', close: true })
   })
 
   it('cancelling the confirmation keeps the draft and sends nothing', async () => {
@@ -173,12 +173,36 @@ describe('MessageReader', () => {
     expect(w.find('[data-testid="reply-body"]').element.value).toBe('Tack!')
   })
 
+  it('a failed send keeps the draft and says so', async () => {
+    // SES rejecting the mail used to clear the textarea and show nothing, so
+    // the agent lost what they wrote and believed it had gone out.
+    const w = mount(MessageReader, { props: { message: message() } })
+    await w.find('[data-testid="reply-body"]').setValue('Tack!')
+    await w.find('[data-testid="send-reply"]').trigger('click')
+    await w.find('[data-testid="confirm-send-close"]').trigger('click')
+    w.emitted('reply')[0][0].done(false, 'Email address is not verified')
+    await w.vm.$nextTick()
+    expect(w.find('[data-testid="reply-body"]').element.value).toBe('Tack!')
+    expect(w.find('[data-testid="composer-error"]').text()).toContain('not verified')
+  })
+
+  it('a successful send clears the draft', async () => {
+    const w = mount(MessageReader, { props: { message: message() } })
+    await w.find('[data-testid="reply-body"]').setValue('Tack!')
+    await w.find('[data-testid="send-reply"]').trigger('click')
+    await w.find('[data-testid="confirm-send-close"]').trigger('click')
+    w.emitted('reply')[0][0].done(true)
+    await w.vm.$nextTick()
+    expect(w.find('[data-testid="reply-body"]').element.value).toBe('')
+    expect(w.find('[data-testid="composer-error"]').exists()).toBe(false)
+  })
+
   it('menu offers Send and leave open (close:false)', async () => {
     const w = mount(MessageReader, { props: { message: message() } })
     await w.find('[data-testid="reply-body"]').setValue('Tack!')
     await w.find('[data-testid="send-menu-toggle"]').trigger('click')
     await w.find('[data-testid="opt-open"]').trigger('click')
-    expect(w.emitted('reply')[0]).toEqual([{ body: 'Tack!', close: false }])
+    expect(w.emitted('reply')[0][0]).toMatchObject({ body: 'Tack!', close: false })
   })
 
   it('emits set-assignee from the assignee dropdown', async () => {
@@ -274,7 +298,7 @@ describe('MessageReader', () => {
     await w.find('[data-testid="tab-note"]').trigger('click')
     await w.find('[data-testid="reply-body"]').setValue('Intern grej')
     await w.find('[data-testid="save-note"]').trigger('click')
-    expect(w.emitted('add-note')[0]).toEqual([{ text: 'Intern grej' }])
+    expect(w.emitted('add-note')[0][0]).toMatchObject({ text: 'Intern grej' })
     expect(w.emitted('reply')).toBeUndefined()
   })
 

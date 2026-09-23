@@ -180,18 +180,32 @@ const selectAssignment = (a) => {
   store.setAssignment(a)
 }
 
-const onReply = async ({ body, close }) => {
+// done() tells the composer whether to clear the draft or keep it and show why
+// it failed - a rejected send must not silently swallow what the agent wrote.
+const onReply = async ({ body, close, done }) => {
   if (!store.current) return
   const id = store.current.messageId
-  await store.replyAction(id, { body })
+  try {
+    await store.replyAction(id, { body })
+  } catch (e) {
+    done?.(false, e?.message)
+    return
+  }
+  done?.(true)
   if (close) await store.setStateAction(id, 'done')
   // Refresh the thread so the sent reply shows inline.
   await store.openMessageAction(id)
 }
 
-const onAddNote = async ({ text }) => {
+const onAddNote = async ({ text, done }) => {
   if (!store.current) return
-  await store.addNoteAction(store.current.messageId, text)
+  try {
+    await store.addNoteAction(store.current.messageId, text)
+  } catch (e) {
+    done?.(false, e?.message)
+    return
+  }
+  done?.(true)
 }
 
 const onSetState = async (state) => {
