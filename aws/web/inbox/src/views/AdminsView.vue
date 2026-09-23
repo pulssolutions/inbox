@@ -46,6 +46,29 @@
         </tbody>
       </table>
       <p v-if="store.error.list" class="form-error">Kunde inte ladda administratörer.</p>
+
+      <section class="notify-defaults">
+        <h2>E-post som standard</h2>
+        <p class="muted">
+          Gäller administratörer som inte valt något eget. Var och en kan sätta
+          sitt eget värde i listan ovan.
+        </p>
+        <div v-for="e in NOTIFY_EVENTS" :key="e.key" class="notify-row">
+          <label class="form-label" :for="`default-notify-${e.key}`">{{ e.label }}</label>
+          <select
+            :id="`default-notify-${e.key}`"
+            class="form-control"
+            :data-testid="`default-notify-${e.key}`"
+            :value="settings.notifyDefaults[e.key] ? 'on' : 'off'"
+            :disabled="settings.loading.save"
+            @change="saveDefault(e.key, $event.target.value)"
+          >
+            <option value="on">På</option>
+            <option value="off">Av</option>
+          </select>
+        </div>
+        <p v-if="settings.error.save" class="form-error">Kunde inte spara standardvärdet.</p>
+      </section>
     </div>
 
     <Modal :open="modalOpen" :title="editing ? 'Ändra admin' : 'Ny admin'" @close="modalOpen = false">
@@ -69,15 +92,19 @@
           <label class="form-label">Kategorier (kommaseparerade)</label>
           <input v-model="form.categories" class="form-control" data-testid="f-categories" placeholder="kurser, styrelse" />
         </div>
-        <div>
-          <label class="form-check">
-            <input
-              type="checkbox"
-              v-model="form.notifyNewIssue"
-              data-testid="f-notify"
-            />
-            Skicka e-post för nytt ärende
-          </label>
+        <div v-for="e in NOTIFY_EVENTS" :key="e.key">
+          <label class="form-label">E-post: {{ e.label.toLowerCase() }}</label>
+          <select
+            v-model="form.notify[e.key]"
+            class="form-control"
+            :data-testid="`f-notify-${e.key}`"
+          >
+            <option value="inherit">
+              Följ standard ({{ settings.notifyDefaults[e.key] ? 'På' : 'Av' }})
+            </option>
+            <option value="on">På</option>
+            <option value="off">Av</option>
+          </select>
         </div>
         <p v-if="store.error.save" class="form-error">{{ saveError }}</p>
       </div>
@@ -94,15 +121,52 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useAdminsStore } from '@/stores/admins-store'
+import { useSettingsStore } from '@/stores/settings-store'
 import Modal from '@/components/Modal.vue'
 import Spinner from '@/components/Spinner.vue'
 
 const store = useAdminsStore()
+const settings = useSettingsStore()
 const modalOpen = ref(false)
 const editing = ref(false)
-const form = reactive({ email: '', name: '', role: 'admin', categories: '', notifyNewIssue: true })
 
-onMounted(() => store.loadAdminsAction())
+// The two events an admin is mailed about, each stored under its own flag.
+// `null` on the admin row means "no choice" — the org default applies.
+const NOTIFY_EVENTS = [
+  { key: 'newIssue', field: 'notifyNewIssue', label: 'Nytt ärende' },
+  { key: 'reply', field: 'notifyReply', label: 'Svar och aktivitet i ärende' }
+]
+
+const toChoice = (v) => (v === true ? 'on' : v === false ? 'off' : 'inherit')
+const fromChoice = (v) => (v === 'on' ? true : v === 'off' ? false : null)
+
+// A row written before the flags were split carries neither key, or only the
+// old one — and back then that one governed both events, absent meaning on.
+// Show what the admin ALREADY GETS, so saving an unrelated edit pins it rather
+// than moving them onto an org default they never chose. Mirrors carryNotifyFlags
+// in the service; the server applies the same rule when the field is omitted.
+const storedChoice = (admin, field) =>
+  admin[field] === undefined
+    ? toChoice(admin.notifyNewIssue !== false)
+    : toChoice(admin[field])
+
+const blankForm = () => ({
+  email: '',
+  name: '',
+  role: 'admin',
+  categories: '',
+  notify: { newIssue: 'inherit', reply: 'inherit' }
+})
+
+const form = reactive(blankForm())
+
+onMounted(() => {
+  store.loadAdminsAction()
+  settings.loadSettingsAction()
+})
+
+const saveDefault = (key, value) =>
+  settings.updateNotifyDefaultsAction({ [key]: value === 'on' })
 
 const saveError = computed(() =>
   store.error.save?.code === 'LAST_SUPERADMIN'
@@ -112,7 +176,7 @@ const saveError = computed(() =>
 
 const openNew = () => {
   editing.value = false
-  Object.assign(form, { email: '', name: '', role: 'admin', categories: '', notifyNewIssue: true })
+  Object.assign(form, blankForm())
   store.error.save = null
   modalOpen.value = true
 }
@@ -124,7 +188,9 @@ const openEdit = (a) => {
     name: a.name,
     role: a.role,
     categories: (a.categories || []).join(', '),
-    notifyNewIssue: a.notifyNewIssue !== false
+    notify: Object.fromEntries(
+      NOTIFY_EVENTS.map((e) => [e.key, storedChoice(a, e.field)])
+    )
   })
   store.error.save = null
   modalOpen.value = true
@@ -141,7 +207,9 @@ const save = async () => {
     name: form.name,
     role: form.role,
     categories: form.role === 'superadmin' ? [] : parseCategories(),
-    notifyNewIssue: form.notifyNewIssue
+    ...Object.fromEntries(
+      NOTIFY_EVENTS.map((e) => [e.field, fromChoice(form.notify[e.key])])
+    )
   }
   try {
     if (editing.value) {
@@ -182,6 +250,26 @@ const onDelete = async (a) => {
 }
 .page-body {
   padding: 22px 28px;
+}
+.notify-defaults {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  max-width: 520px;
+}
+.notify-defaults h2 {
+  font-size: 15px;
+  margin: 0 0 4px;
+}
+.notify-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 12px;
+}
+.notify-row .form-control {
+  width: 200px;
 }
 .stack-12 {
   display: flex;

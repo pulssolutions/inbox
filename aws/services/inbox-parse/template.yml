@@ -212,15 +212,39 @@ Resources:
             return { html, text: textParts.join('\n\n') }
           }
 
+          // --- notify rule (mirrors aws/services/inbox/src/notify.js) ---
           // Every active superadmin + active scoped admins covering the category,
-          // deduped by email. Admins with notifyNewIssue===false opt out (default
-          // on). Mirrors aws/services/inbox/src/notify.js.
-          const notifyRecipients = (admins, category) => {
+          // deduped by email, minus those who take no mail for this event.
+          // test/notify-parity.test.mjs lifts this out of the YAML and runs it
+          // against the service's module, so the two cannot drift.
+          const NOTIFY_DEFAULTS = { newIssue: true, reply: false }
+
+          // DynamoDB attribute -> flag. Absent means "written before the flags
+          // were split", null means "no choice, inherit"; collapsing either to a
+          // boolean here would defeat the whole resolution order below.
+          const notifyFlag = (attr) => {
+            if (!attr) return undefined
+            return typeof attr.BOOL === 'boolean' ? attr.BOOL : null
+          }
+
+          const notifyPref = (admin, event, orgDefaults) => {
+            const own = event === 'reply' ? admin.notifyReply : admin.notifyNewIssue
+            if (typeof own === 'boolean') return own
+            if (event === 'reply' && admin.notifyReply === undefined) {
+              return admin.notifyNewIssue !== false
+            }
+            const org = orgDefaults ? orgDefaults[event] : undefined
+            return typeof org === 'boolean' ? org : NOTIFY_DEFAULTS[event]
+          }
+
+          const notifyRecipients = (admins, category, options) => {
+            const event = (options && options.event) || 'newIssue'
+            const orgDefaults = options && options.orgDefaults
             const out = []
             const seen = new Set()
             for (const a of admins || []) {
               if (!a || a.active === false) continue
-              if (a.notifyNewIssue === false) continue
+              if (!notifyPref(a, event, orgDefaults)) continue
               const email = String(a.email || '').toLowerCase()
               if (!email) continue
               const covers =
@@ -231,6 +255,30 @@ Resources:
               out.push(email)
             }
             return out
+          }
+          // --- end notify rule ---
+
+          // Org-wide defaults for admins who made no choice of their own.
+          // Best-effort: a lookup failure falls back to the code defaults.
+          const orgNotifyDefaults = async (org) => {
+            try {
+              const res = await ddb.send(
+                new GetItemCommand({
+                  TableName: TABLE,
+                  Key: { pk: { S: org + ':settings' }, sk: { S: 'notify' } }
+                })
+              )
+              if (!res.Item) return null
+              const out = {}
+              for (const event of Object.keys(NOTIFY_DEFAULTS)) {
+                const v = notifyFlag(res.Item[event])
+                if (typeof v === 'boolean') out[event] = v
+              }
+              return out
+            } catch (e) {
+              console.error('notify defaults lookup failed', org, e.message)
+              return null
+            }
           }
 
           const listAdmins = async (org) => {
@@ -248,13 +296,18 @@ Resources:
                   })
                 )
                 for (const it of res.Items || []) {
-                  rows.push({
+                  const row = {
                     email: it.email && it.email.S,
                     role: it.role && it.role.S,
                     active: it.active ? it.active.BOOL !== false : true,
-                    notifyNewIssue: it.notifyNewIssue ? it.notifyNewIssue.BOOL !== false : true,
                     categories: ((it.categories && it.categories.L) || []).map((c) => c.S)
-                  })
+                  }
+                  // Only set what the row actually carries: notifyPref reads
+                  // `notifyReply === undefined` as "pre-split", so an always-
+                  // present key would silently change who gets reply mail.
+                  if ('notifyNewIssue' in it) row.notifyNewIssue = notifyFlag(it.notifyNewIssue)
+                  if ('notifyReply' in it) row.notifyReply = notifyFlag(it.notifyReply)
+                  rows.push(row)
                 }
                 lastKey = res.LastEvaluatedKey
               } while (lastKey)
@@ -269,7 +322,11 @@ Resources:
           const notifyAdmins = async ({ org, orgName, category, from, subject, rootId, isReply }) => {
             if (!SENDER) return
             const admins = await listAdmins(org)
-            const recipients = notifyRecipients(admins, category)
+            const orgDefaults = await orgNotifyDefaults(org)
+            const recipients = notifyRecipients(admins, category, {
+              event: isReply ? 'reply' : 'newIssue',
+              orgDefaults
+            })
             if (!recipients.length) return
             const heading = isReply ? T.newReplyHeading : T.newIssueHeading
             const subjectLine =

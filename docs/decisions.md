@@ -111,3 +111,18 @@ Work targets `main`. `master` exists from the first push and is still
 validated, but an org-level ruleset requires an approving review on it that
 nobody here can currently satisfy or change - so `main` is where work lands
 until that is sorted.
+
+## 2026-09-15: Notification defaults are org rows, not deployment profile
+
+Admins can now turn new-issue and reply mail on or off separately, so both
+flags need a default for admins who have chosen neither. That default is a
+`${org}:settings/notify` row, not a profile key: the profile is deploy-time
+infrastructure, one deployment can serve several orgs, and every product
+default put there is one more thing a fork must keep in step with upstream.
+A superadmin changes it from the Admins page; no redeploy.
+
+Resolution is per-admin value, else org default, else code default. Reply mail
+defaults **off** — a deployment nobody has configured should not mail people who
+never asked for it. Because unset must therefore mean "inherit" rather than
+"on", `null` is a stored value here, and a row written before the split (no
+`notifyReply` key at all) keeps its old behaviour until it is next edited.

@@ -4,6 +4,7 @@ import { requireCapability } from './auth.js'
 import * as messages from './messages/admin.js'
 import * as admins from './admins/admin.js'
 import * as audit from './audit/handler.js'
+import * as settings from './settings/admin.js'
 
 const wrapAdmin = (cap, fn) => async (ctx) => {
   const claims = requireCapability(ctx.event, ctx.org, cap)
@@ -32,7 +33,14 @@ export const buildRoutes = () => ({
   'PATCH /admin/admins/{email}': wrapAdmin('admins.write', admins.update),
   'DELETE /admin/admins/{email}': wrapAdmin('admins.delete', admins.remove),
 
-  'GET /admin/audit': wrapAdmin('audit.read', audit.list)
+  'GET /admin/audit': wrapAdmin('audit.read', audit.list),
+
+  // Superadmin either way: the only screen that renders this is the Admins
+  // page, itself gated on admins.read, so a wider read reaches nobody who
+  // could use it. PATCH, not PUT: the API has no PUT proxy route, and this
+  // merges rather than replaces.
+  'GET /admin/settings': wrapAdmin('admins.read', settings.get),
+  'PATCH /admin/settings': wrapAdmin('admins.write', settings.update)
 })
 
 // API Gateway routes admin paths through per-method proxies

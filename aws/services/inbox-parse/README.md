@@ -12,13 +12,15 @@ and must be kept in step by hand.
 
 | Inline here | Also lives in |
 | --- | --- |
-| `notifyRecipients` | `aws/services/inbox/src/notify.js` |
+| `notifyPref` / `notifyRecipients` | `aws/services/inbox/src/notify.js` |
 | `buildEmail` | `aws/services/inbox/src/ses.js` |
 | the locale string table | `aws/services/inbox/src/strings.js` |
 
 If you change any of those three, change both copies. They will otherwise
 drift, and the drift is invisible until someone reads two differently-worded
-emails.
+emails. The notification rule is the exception: `test/notify-parity.test.mjs`
+lifts it out of this template and runs it against the service's module, so that
+one fails loudly instead.
 
 ## What it does per message
 

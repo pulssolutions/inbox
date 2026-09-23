@@ -3,6 +3,7 @@ import { NotFoundError, ValidationError } from '../errors.js'
 import { allowedCategories, assertCategoryAllowed, orgName } from '../auth.js'
 import { recordAudit } from '../audit.js'
 import { notifyRecipients } from '../notify.js'
+import { notifyDefaults } from '../settings/defaults.js'
 import { strings } from '../strings.js'
 
 const VALID_STATUS = new Set(['read', 'unread'])
@@ -288,10 +289,9 @@ const notifyAssignee = async (deps, { org, claims, message, assignee }) => {
 }
 
 // Best-effort: email the other responsible admins about activity on an issue.
-// Recipients are the same set notified about new issues (every superadmin +
-// scoped admins covering the category, honouring the notifyNewIssue opt-out),
-// minus the admin who triggered it. `makeParagraphs(who)` builds the body once
-// the actor's display name is resolved.
+// Recipients are the superadmins + scoped admins covering the category who take
+// reply mail, minus the admin who triggered it. `makeParagraphs(who)` builds the
+// body once the actor's display name is resolved.
 const notifyColleagues = async (
   deps,
   { org, claims, category, root, subject, heading, makeParagraphs }
@@ -306,9 +306,11 @@ const notifyColleagues = async (
     return
   }
   const actor = String(claims?.email || '').toLowerCase()
-  const recipients = notifyRecipients(admins, category).filter(
-    (email) => email !== actor
-  )
+  const orgDefaults = await notifyDefaults(deps, org)
+  const recipients = notifyRecipients(admins, category, {
+    event: 'reply',
+    orgDefaults
+  }).filter((email) => email !== actor)
   if (!recipients.length) return
   // The display name isn't in the JWT, so resolve it from the admin record
   // (same source the thread view uses); fall back to any claim name, then email.
