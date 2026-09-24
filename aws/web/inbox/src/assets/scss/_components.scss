@@ -697,12 +697,14 @@ textarea.form-control {
   background: var(--bg-2);
   padding: 14px 22px;
 }
-.composer-tabs {
+.composer-tabs,
+.page-tabs {
   display: flex;
   gap: 2px;
   margin-bottom: 10px;
 }
-.composer-tabs button {
+.composer-tabs button,
+.page-tabs button {
   padding: 7px 12px;
   font-size: 0.84rem;
   font-weight: 600;
@@ -712,10 +714,12 @@ textarea.form-control {
   cursor: pointer;
   border-bottom: 2px solid transparent;
 }
-.composer-tabs button:hover {
+.composer-tabs button:hover,
+.page-tabs button:hover {
   color: var(--fg);
 }
-.composer-tabs button.active {
+.composer-tabs button.active,
+.page-tabs button.active {
   color: var(--fg);
   border-bottom-color: var(--accent);
 }

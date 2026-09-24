@@ -26,6 +26,17 @@ describe('AdminsView (integration with fetch shim)', () => {
     expect(w.find('.admin-table').exists()).toBe(false)
   })
 
+  it('swaps the admin table for the settings placeholder', async () => {
+    const w = mountView()
+    await flushPromises()
+    await w.find('[data-testid="tab-settings"]').trigger('click')
+    expect(w.find('.admin-table').exists()).toBe(false)
+    expect(w.find('[data-testid="add-admin"]').exists()).toBe(false)
+    expect(w.find('[data-testid="settings-panel"]').text()).toContain('Settings here later')
+    await w.find('[data-testid="tab-admins"]').trigger('click')
+    expect(w.find('.admin-table').exists()).toBe(true)
+  })
+
   it('lists admins with role + categories', async () => {
     const w = mountView()
     await flushPromises()

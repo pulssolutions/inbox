@@ -5,12 +5,41 @@
         <h1>Administratörer</h1>
         <p class="muted">Hantera vilka som har åtkomst och till vilka kategorier.</p>
       </div>
-      <button type="button" class="btn btn-primary btn-sm" data-testid="add-admin" @click="openNew">
+      <button
+        v-if="tab === 'admins'"
+        type="button"
+        class="btn btn-primary btn-sm"
+        data-testid="add-admin"
+        @click="openNew"
+      >
         + Ny admin
       </button>
     </div>
 
-    <div class="page-body">
+    <div class="page-tabs">
+      <button
+        type="button"
+        data-testid="tab-admins"
+        :class="{ active: tab === 'admins' }"
+        @click="tab = 'admins'"
+      >
+        Admins
+      </button>
+      <button
+        type="button"
+        data-testid="tab-settings"
+        :class="{ active: tab === 'settings' }"
+        @click="tab = 'settings'"
+      >
+        Settings
+      </button>
+    </div>
+
+    <div v-if="tab === 'settings'" class="page-body" data-testid="settings-panel">
+      <p class="muted">Settings here later</p>
+    </div>
+
+    <div v-else class="page-body">
       <Spinner v-if="store.loading.list" label="Laddar administratörer…" />
       <table v-else class="admin-table">
         <thead>
@@ -127,6 +156,7 @@ import Spinner from '@/components/Spinner.vue'
 
 const store = useAdminsStore()
 const settings = useSettingsStore()
+const tab = ref('admins')
 const modalOpen = ref(false)
 const editing = ref(false)
 

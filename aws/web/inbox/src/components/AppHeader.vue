@@ -13,7 +13,7 @@
         data-testid="nav-admins"
         :class="{ active: route.name === 'admins' }"
       >
-        Admins
+        Admin
       </RouterLink>
       <RouterLink
         v-if="canViewAudit"
