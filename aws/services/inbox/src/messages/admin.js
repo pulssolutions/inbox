@@ -528,6 +528,26 @@ const addressedDomain = (to, mailDomains) => {
   return null
 }
 
+// Who a reply must actually go to. A mailing list that rewrites From: - Google
+// Groups does it for every sender whose domain publishes DMARC - leaves the
+// list's own address in From: and the human's in Reply-To. Answering From: then
+// mails the list, which fans back out to every member (us included) and never
+// reaches the person who wrote. Read from the stored MIME rather than the index
+// row, so it also holds for mail received before this existed.
+const replyRecipient = async (deps, message) => {
+  if (message.direction === 'outbound' || !message.s3Key) return message.from
+  try {
+    const parsed = await deps.mailStore.fetchAndParse({
+      bucket: message.s3Bucket,
+      key: message.s3Key
+    })
+    return parsed.replyTo || message.from
+  } catch {
+    // An unreadable object must not block answering a customer.
+    return message.from
+  }
+}
+
 export const reply = async ({ deps, org, pathParameters, body, claims }) => {
   const messageId = pathParameters?.messageId
   const original = await requireMessage(deps, org, messageId, claims)
@@ -537,7 +557,7 @@ export const reply = async ({ deps, org, pathParameters, body, claims }) => {
   }
 
   const subject = body.subject || `Re: ${original.subject || ''}`
-  const to = original.from
+  const to = await replyRecipient(deps, original)
 
   // Reply from the category alias so the recipient's reply threads back to the
   // same inbox (kurser@ -> category kurser). Display name names the club + category.

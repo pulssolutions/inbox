@@ -363,6 +363,45 @@ describe('messages.reply', () => {
     expect(log[0]).toMatchObject({ action: 'reply', targetId: 'm1' })
   })
 
+  it('answers Reply-To when a mailing list rewrote From', async () => {
+    // Google Groups rewrites From: for any sender whose domain publishes DMARC.
+    // Answering From: would mail the list, not the person who wrote in.
+    await deps.db.putMessage({
+      org: ORG,
+      message: baseMessage({ from: "'Anna' via Info <info@acme.example>" })
+    })
+    deps.mailStore.seed({
+      bucket: 'inbox-bucket',
+      key: 'inbound/m1',
+      parsed: { text: 'Hej', html: null, attachments: [], replyTo: 'Anna <anna@example.se>' }
+    })
+    await reply({
+      deps,
+      org: ORG,
+      pathParameters: { messageId: 'm1' },
+      body: { body: 'Svar' },
+      claims: CLAIMS
+    })
+    expect(deps.ses.replies[0].to).toBe('Anna <anna@example.se>')
+  })
+
+  it('answers From when the mail carries no Reply-To', async () => {
+    await deps.db.putMessage({ org: ORG, message: baseMessage() })
+    deps.mailStore.seed({
+      bucket: 'inbox-bucket',
+      key: 'inbound/m1',
+      parsed: { text: 'Hej', html: null, attachments: [], replyTo: null }
+    })
+    await reply({
+      deps,
+      org: ORG,
+      pathParameters: { messageId: 'm1' },
+      body: { body: 'Svar' },
+      claims: CLAIMS
+    })
+    expect(deps.ses.replies[0].to).toBe('Anna <anna@example.se>')
+  })
+
   it('records who sent the reply and detail resolves their display name', async () => {
     await deps.db.putMessage({ org: ORG, message: baseMessage() })
     await deps.db.putAdmin({

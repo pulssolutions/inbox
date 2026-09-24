@@ -240,6 +240,19 @@ const VIA_GROUP = [
   ''
 ].join('\r\n')
 
+// A DMARC-protected sender through the same group: Google replaces From: with
+// the list address and puts the human in Reply-To.
+const FROM_REWRITTEN = [
+  "From: \"'Anne' via Info\" <info@puls-solutions.se>",
+  'Reply-To: Anne Oliviusson <anne@taby.example>',
+  'To: hello@puls-solutions.com',
+  'Subject: Sv: Test',
+  'Content-Type: text/plain; charset=utf-8',
+  '',
+  'Hej!',
+  ''
+].join('\r\n')
+
 const QUOTING_THE_FOOTER = [
   'From: Anna <anna@example.se>',
   'To: hello@puls-solutions.com',
@@ -259,6 +272,13 @@ describe('MailStore group footer', () => {
     expect(mail.text).toBe('This is a third test message')
     expect(mail.html).toContain('This is a third test message')
     expect(mail.html).not.toContain('unsubscribe')
+  })
+
+  it('carries Reply-To, the only address that reaches a rewritten sender', async () => {
+    const store = new MailStore({ client: fakeClient({ k: FROM_REWRITTEN }) })
+    const mail = await store.fetchAndParse({ bucket: 'b', key: 'k' })
+    expect(mail.from).toContain('info@puls-solutions.se')
+    expect(mail.replyTo).toBe('"Anne Oliviusson" <anne@taby.example>')
   })
 
   it('keeps the same sentence when it is quoted content rather than a footer', async () => {

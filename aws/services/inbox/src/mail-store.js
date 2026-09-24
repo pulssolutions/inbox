@@ -63,6 +63,10 @@ const stripGroupFooter = (body, pattern) =>
 
 const normalize = (mail) => ({
   from: mail.from?.text ?? null,
+  // A mailing list that rewrites From: (Google Groups does, whenever the real
+  // sender's domain publishes DMARC) leaves the only address that reaches the
+  // human here. Replying to From: would mail the list instead.
+  replyTo: mail.replyTo?.text ?? null,
   to: mail.to?.text ?? null,
   subject: mail.subject ?? null,
   date: mail.date ? mail.date.toISOString() : null,
