@@ -76,6 +76,11 @@ git push -f origin <old-sha>:production  # roll back
 Path filters apply to `production` exactly as to `main`, so a promotion only
 redeploys the stacks whose files changed since the last one.
 
+Creating the branch is the exception: the first push to it triggers nothing at
+all, because a filter has no diff base on a branch that did not exist. Point it
+at whatever is already deployed and let the next promotion be the first real
+run - or deploy that first one by dispatch.
+
 A green run is not evidence that the right code is live - a dispatch that races
 a push deploys the previous commit and still goes green. Check the bytes:
 
