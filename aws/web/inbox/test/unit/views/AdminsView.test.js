@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { nextTick } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { resetTestApi, setWebhookEnabled } from '../../setup'
+import { resetTestApi, setWebhookEnabled, setWebhookGroupMissing } from '../../setup'
 import AdminsView from '@/views/AdminsView.vue'
 import { useAdminsStore } from '@/stores/admins-store'
 import { useSettingsStore } from '@/stores/settings-store'
@@ -178,6 +178,18 @@ describe('AdminsView (integration with fetch shim)', () => {
       await w.find('[data-testid="webhook-test"]').trigger('click')
       await flushPromises()
       expect(w.find('[data-testid="webhook-test-result"]').text()).toContain('levererades')
+    })
+
+    it('survives an API that has never heard of the webhook group', async () => {
+      // A partial deploy: the web stack shipped, the service stack did not, so
+      // GET /admin/settings answers without `webhook` at all. Assigning that
+      // over the store's defaults used to blank them and take the page down.
+      setWebhookGroupMissing(true)
+      const w = await openSettings()
+      expect(w.find('[data-testid="webhook-off"]').exists()).toBe(true)
+      expect(useSettingsStore().webhook.enabled).toBe(false)
+      // The settings the old API does know about still work.
+      expect(w.find('[data-testid="default-notify-reply"]').exists()).toBe(true)
     })
 
     it('says so instead of offering a form when the deployment has webhooks off', async () => {

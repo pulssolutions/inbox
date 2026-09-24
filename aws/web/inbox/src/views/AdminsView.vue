@@ -312,7 +312,12 @@ const form = reactive(blankForm())
 
 onMounted(async () => {
   store.loadAdminsAction()
-  await settings.loadSettingsAction()
+  try {
+    await settings.loadSettingsAction()
+  } catch {
+    // Reported through settings.error.load; the page still renders its
+    // defaults rather than dying on an unhandled rejection.
+  }
   const { enabled, ...saved } = settings.webhook
   Object.assign(webhookForm, saved)
 })

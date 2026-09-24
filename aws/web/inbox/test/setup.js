@@ -99,7 +99,8 @@ const state = {
   admins: [],
   audit: [],
   notifyDefaults: null,
-  webhook: null
+  webhook: null,
+  webhookGroupMissing: false
 }
 let replyCounter = 0
 let noteCounter = 0
@@ -115,11 +116,18 @@ export const setWebhookEnabled = (enabled) => {
   state.webhook = { ...state.webhook, enabled }
 }
 
+// An API that predates a settings group and omits it - what a client really
+// meets when the web stack deploys and the service stack does not.
+export const setWebhookGroupMissing = (missing) => {
+  state.webhookGroupMissing = missing
+}
+
 export const resetTestApi = () => {
   state.messages = seed().map((m) => ({ state: 'open', ...m }))
   state.notes = []
   state.notifyDefaults = null
   state.webhook = null
+  state.webhookGroupMissing = false
   state.admins = seedAdmins()
   state.audit = [
     { id: 'a3', ts: '2026-06-03T13:00:00Z', actor: { email: 'boss@acme.example', name: 'Boss' }, action: 'state', targetType: 'message', targetLabel: 'Agility?', meta: { state: { from: 'open', to: 'done' } } },
@@ -333,10 +341,11 @@ const handle = async (input, init = {}) => {
 
   // Both settings groups, always - the real API answers with every group so the
   // client's state cannot drift from the server's.
-  const settingsBody = () => ({
-    notifyDefaults: { newIssue: true, reply: false, ...state.notifyDefaults },
-    webhook: { ...WEBHOOK_DEFAULTS, ...state.webhook }
-  })
+  const settingsBody = () => {
+    const out = { notifyDefaults: { newIssue: true, reply: false, ...state.notifyDefaults } }
+    if (!state.webhookGroupMissing) out.webhook = { ...WEBHOOK_DEFAULTS, ...state.webhook }
+    return out
+  }
   if (path === '/admin/settings' && method === 'GET') {
     return jsonResponse(200, settingsBody())
   }

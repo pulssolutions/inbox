@@ -27,9 +27,13 @@ export const useSettingsStore = defineStore('settings-store', {
       this.loading.load = true
       this.error.load = null
       try {
+        // Merged into the defaults rather than assigned over them. A server
+        // that does not know a settings group - an older API during a partial
+        // deploy, where the web stack shipped and the service stack did not -
+        // simply omits it, and a page must not break because of that.
         const { notifyDefaults, webhook } = await loadSettingsAPI()
-        this.notifyDefaults = notifyDefaults
-        this.webhook = webhook
+        this.notifyDefaults = { ...this.notifyDefaults, ...notifyDefaults }
+        this.webhook = { ...this.webhook, ...webhook }
       } catch (e) {
         this.error.load = e
         throw e
@@ -43,7 +47,7 @@ export const useSettingsStore = defineStore('settings-store', {
       this.error.save = null
       try {
         const { notifyDefaults } = await updateSettingsAPI({ notifyDefaults: patch })
-        this.notifyDefaults = notifyDefaults
+        this.notifyDefaults = { ...this.notifyDefaults, ...notifyDefaults }
       } catch (e) {
         this.error.save = e
         throw e
@@ -60,7 +64,7 @@ export const useSettingsStore = defineStore('settings-store', {
       this.testResult = null
       try {
         const { webhook } = await updateSettingsAPI({ webhook: patch })
-        this.webhook = webhook
+        this.webhook = { ...this.webhook, ...webhook }
       } catch (e) {
         this.error.webhook = e
         throw e
