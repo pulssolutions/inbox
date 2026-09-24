@@ -8,7 +8,7 @@ name: Deploy Inbox Web
 
 on:
   push:
-    branches: [main]
+    branches: [main, production]
     paths:
       - aws/web/inbox/**
       - .github/workflows/deploy-inbox-web.yml
@@ -37,6 +37,6 @@ jobs:
     uses: ./.github/workflows/_deploy.yml
     with:
       stack: web
-      environment: ${{ inputs.environment || 'dev' }}
+      environment: ${{ inputs.environment }}
       profile: ${{ inputs.profile }}
     secrets: inherit

@@ -28,6 +28,6 @@ jobs:
     uses: ./.github/workflows/_deploy.yml
     with:
       stack: billing
-      environment: ${{ inputs.environment || 'dev' }}
+      environment: ${{ inputs.environment }}
       profile: ${{ inputs.profile }}
     secrets: inherit

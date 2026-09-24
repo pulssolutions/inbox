@@ -19,9 +19,9 @@ on:
         required: true
         type: string
       environment:
-        description: Environment
+        description: Environment; blank derives it from the branch
         required: false
-        default: dev
+        default: ''
         type: string
       profile:
         description: Deployment profile; defaults to the DEPLOY_PROFILE variable
@@ -72,10 +72,22 @@ jobs:
           ROLE="${{ vars.AWS_DEPLOY_ROLE_ARN }}"
           [ -n "$ROLE" ] || ROLE=$(node scripts/profile.mjs "$PROFILE" --role)
 
+          # A push decides by branch, a dispatch says so outright. The rule
+          # lives here alone, so five thin callers cannot disagree about which
+          # branch means production.
+          ENVIRONMENT="${{ inputs.environment }}"
+          if [ -z "$ENVIRONMENT" ]; then
+            case "${{ github.ref_name }}" in
+              production) ENVIRONMENT=www ;;
+              *)          ENVIRONMENT=dev ;;
+            esac
+          fi
+
+          echo "environment=$ENVIRONMENT"   >> "$GITHUB_OUTPUT"
           echo "profile=$PROFILE"           >> "$GITHUB_OUTPUT"
           echo "role=$ROLE"                 >> "$GITHUB_OUTPUT"
           echo "region=$(node scripts/profile.mjs "$PROFILE" --region)" >> "$GITHUB_OUTPUT"
-          echo "Deploying ${{ inputs.stack }} for profile $PROFILE (${{ inputs.environment }})"
+          echo "Deploying ${{ inputs.stack }} for profile $PROFILE ($ENVIRONMENT)"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -101,5 +113,5 @@ jobs:
           DEPLOY_PROFILE_JSON: ${{ vars.DEPLOY_PROFILE_JSON }}
         run: |
           node scripts/deploy.mjs "${{ steps.cfg.outputs.profile }}" \
-            --env "${{ inputs.environment }}" \
+            --env "${{ steps.cfg.outputs.environment }}" \
             --only "${{ inputs.stack }}"

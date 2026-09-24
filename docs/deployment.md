@@ -42,7 +42,7 @@ node scripts/profile.mjs <profile> --stacks
 
 One workflow per stack, each with its own path filter:
 
-| Workflow | Deploys | On push to `main` |
+| Workflow | Deploys | Path that triggers it |
 | --- | --- | --- |
 | `deploy-shared.yml` | artifact bucket | `aws/shared/**` |
 | `deploy-inbox-service.yml` | API, Cognito, table | `aws/services/inbox/**` |
@@ -57,6 +57,33 @@ purpose: seven copies of the same fifty lines drift apart.
 
 `account` and `billing` never deploy on push. They are account-wide bootstrap,
 and `account` creates the very role CI assumes - its first run has to be local.
+
+### The branch is the environment
+
+`main` deploys **dev**. `production` deploys **www**. `_deploy.yml` derives it
+from the branch, once, so the five callers cannot disagree; a dispatch run
+overrides it by saying the environment outright.
+
+Promotion is a push, which makes the branch itself the answer to what is
+running in production:
+
+```bash
+git push origin main:production          # ship what is on main
+git log --oneline main ^production       # what is not in production yet
+git push -f origin <old-sha>:production  # roll back
+```
+
+Path filters apply to `production` exactly as to `main`, so a promotion only
+redeploys the stacks whose files changed since the last one.
+
+A green run is not evidence that the right code is live - a dispatch that races
+a push deploys the previous commit and still goes green. Check the bytes:
+
+```bash
+url=$(aws lambda get-function --function-name <name>-inbox-<env> \
+  --query Code.Location --output text)
+curl -s "$url" -o /tmp/fn.zip && unzip -p /tmp/fn.zip <file> | grep <something new>
+```
 
 ### Repository variables
 

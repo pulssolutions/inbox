@@ -5,7 +5,7 @@ name: Deploy Shared
 
 on:
   push:
-    branches: [main]
+    branches: [main, production]
     paths:
       - aws/shared/**
       - .github/workflows/deploy-shared.yml
@@ -34,6 +34,6 @@ jobs:
     uses: ./.github/workflows/_deploy.yml
     with:
       stack: shared
-      environment: ${{ inputs.environment || 'dev' }}
+      environment: ${{ inputs.environment }}
       profile: ${{ inputs.profile }}
     secrets: inherit
