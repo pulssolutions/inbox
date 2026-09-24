@@ -100,6 +100,28 @@ curl -s "$url" -o /tmp/fn.zip && unzip -p /tmp/fn.zip <file> | grep <something n
 
 A dispatch run can override profile and environment per run.
 
+### Editing `DEPLOY_PROFILE_JSON`
+
+Editing a long JSON blob in a textarea on github.com is miserable, so don't.
+From your own checkout:
+
+```bash
+node scripts/profile-var.mjs                       # opens it in $EDITOR
+node scripts/profile-var.mjs --print               # just show it
+node scripts/profile-var.mjs features.webhook=true # one key, no editor
+node scripts/profile-var.mjs --dry-run ops.monthlyBudget=20
+```
+
+It reads the variable with `gh`, validates the result with the same
+`validate()` the deploy runs, names what changed, and writes it back — or
+refuses and writes nothing. Run it from the checkout whose variable you mean:
+the repo is taken from that checkout's remote unless you pass `--repo`, and
+`brand.logo` is resolved against that repo, so running it from the wrong one
+fails loudly rather than saving something the deploy would reject.
+
+Changing the profile does not deploy anything. Re-run the stacks whose
+parameters moved.
+
 ## Running your own deployment
 
 This repository is the product. A company runs it from its own copy, which
