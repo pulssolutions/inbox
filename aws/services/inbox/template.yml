@@ -338,7 +338,7 @@ Resources:
     DependsOn: PreTokenLambdaLogGroup
     Properties:
       FunctionName: !Sub "${ProjectPrefix}-inbox-pretoken-${Environment}"
-      Runtime: nodejs22.x
+      Runtime: nodejs24.x
       Handler: index.handler
       Role: !GetAtt PreTokenLambdaRole.Arn
       MemorySize: 128
@@ -406,7 +406,7 @@ Resources:
     DependsOn: PreSignUpLambdaLogGroup
     Properties:
       FunctionName: !Sub "${ProjectPrefix}-inbox-presignup-${Environment}"
-      Runtime: nodejs22.x
+      Runtime: nodejs24.x
       Handler: index.handler
       Role: !GetAtt PreSignUpLambdaRole.Arn
       MemorySize: 128
@@ -545,7 +545,7 @@ Resources:
     DependsOn: InboxLambdaLogGroup
     Properties:
       FunctionName: !Sub "${ProjectPrefix}-inbox-${Environment}"
-      Runtime: nodejs22.x
+      Runtime: nodejs24.x
       Handler: index.handler
       Role: !GetAtt InboxLambdaRole.Arn
       # Opening a thread parses the raw MIME from S3 to list attachments; a

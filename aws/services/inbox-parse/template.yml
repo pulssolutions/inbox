@@ -93,7 +93,7 @@ Resources:
     DependsOn: ParseLambdaLogGroup
     Properties:
       FunctionName: !Sub "${ProjectPrefix}-inbox-parse-${Environment}"
-      Runtime: nodejs22.x
+      Runtime: nodejs24.x
       Handler: index.handler
       Role: !GetAtt ParseLambdaRole.Arn
       MemorySize: 256
@@ -108,7 +108,7 @@ Resources:
           WEB_BASE_URL: !Ref WebBaseUrl
           LOCALE: !Ref Locale
       Code:
-        # Inline / dependency-free (nodejs22 bundles @aws-sdk v3). Receives an
+        # Inline / dependency-free (nodejs24 bundles @aws-sdk v3). Receives an
         # SES event (forwarded by the router for one message), resolves the
         # tenant from the To: domain, writes a message index row to the inbox
         # table in eu-north-1, threads replies, and notifies admins.
