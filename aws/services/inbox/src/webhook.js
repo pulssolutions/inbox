@@ -21,6 +21,27 @@ const escapeHtml = (value) =>
 const truncate = (text, limit) =>
   text.length > limit ? `${text.slice(0, limit)}…` : text
 
+// A sending mail client hard-wraps the body, usually near 72 columns. Kept as
+// line breaks those read as ragged half-lines in a chat room, whose width is
+// nothing like 72. Join a line onto the next only when its length says it was
+// wrapped rather than ended - a sign-off, a list item or a signature line is
+// short and keeps its break - and never across a blank line, which is the
+// author's own paragraph break. Judged on the line as it arrived, not on the
+// paragraph being accumulated, or one long line would swallow everything after
+// it.
+const WRAP_WIDTH = 60
+
+const reflow = (text) => {
+  const out = []
+  let wrapped = false
+  for (const line of String(text).split(/\r?\n/)) {
+    if (wrapped && line.trim() !== '') out[out.length - 1] += ` ${line}`
+    else out.push(line)
+    wrapped = line.length >= WRAP_WIDTH
+  }
+  return out.join('\n')
+}
+
 const nameOf = (address) => {
   const value = String(address || '').trim()
   const named = value.match(/^\s*"?([^"<]*?)"?\s*</)
@@ -46,10 +67,17 @@ export const PLACEHOLDERS = {
   threadId: (m) => m.threadId || m.messageId || '',
   url: (m) => m.url || '',
   receivedAt: (m) => m.receivedAt || '',
-  body: (m) => truncate(String(m.body || ''), BODY_LIMIT)
+  body: (m) => truncate(reflow(m.body || ''), BODY_LIMIT)
 }
 
 const PLACEHOLDER_RE = /\{\{\s*(\w+)\s*\}\}/g
+
+// Applied AFTER escaping, so the tags added here are the only markup a
+// substituted value can contribute. A mail's paragraphs are newlines, and HTML
+// collapses those - quoted in a chat room it would read as one run-on block.
+const AFTER_ESCAPE = {
+  body: (html) => html.replace(/\r?\n/g, '<br>')
+}
 
 // Renders the content an admin authored. Substituted values are HTML-escaped -
 // a subject of `<script>` is text in the chat room, never markup - while the
@@ -57,7 +85,9 @@ const PLACEHOLDER_RE = /\{\{\s*(\w+)\s*\}\}/g
 export const renderTemplate = (template, message) =>
   String(template ?? '').replace(PLACEHOLDER_RE, (_, name) => {
     const resolve = PLACEHOLDERS[name]
-    return resolve ? escapeHtml(resolve(message)) : ''
+    if (!resolve) return ''
+    const escaped = escapeHtml(resolve(message))
+    return AFTER_ESCAPE[name] ? AFTER_ESCAPE[name](escaped) : escaped
   })
 
 // Renders the JSON request body around that content. The receiver decides the

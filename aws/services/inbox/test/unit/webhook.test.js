@@ -47,6 +47,35 @@ describe('renderTemplate', () => {
     expect(renderTemplate('[{{nope}}]', message())).toBe('[]')
   })
 
+  it('keeps a mail\'s paragraphs, which HTML would otherwise collapse', () => {
+    const out = renderTemplate('<blockquote>{{body}}</blockquote>', message({ body: 'Hej!\n\nMvh\nAnne' }))
+    expect(out).toBe('<blockquote>Hej!<br><br>Mvh<br>Anne</blockquote>')
+  })
+
+  it('adds the breaks after escaping, never before', () => {
+    // Otherwise a body containing the literal text `<br>` would become markup.
+    expect(renderTemplate('{{body}}', message({ body: '<br>x' }))).toBe('&lt;br&gt;x')
+  })
+
+  it('rejoins a hard-wrapped paragraph, and leaves a signature alone', () => {
+    // What a real Outlook mail looks like: the paragraph is broken near 72
+    // columns by the sender's client, the sign-off is not.
+    const body = [
+      'Jag tänkte precis göra medarbetarundersökningen men det står att det',
+      'är fel på mitt konto och jag kan inte få en engångskod, kan jag få',
+      'hjälp?',
+      '',
+      'Mvh',
+      'Anne Oliviusson',
+      'Täby kommun'
+    ].join('\n')
+    expect(renderTemplate('{{body}}', message({ body }))).toBe(
+      'Jag tänkte precis göra medarbetarundersökningen men det står att det ' +
+        'är fel på mitt konto och jag kan inte få en engångskod, kan jag få hjälp?' +
+        '<br><br>Mvh<br>Anne Oliviusson<br>Täby kommun'
+    )
+  })
+
   it('truncates a long body', () => {
     const body = 'a'.repeat(BODY_LIMIT + 50)
     const out = renderTemplate('{{body}}', message({ body }))
