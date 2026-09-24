@@ -219,6 +219,14 @@ Resources:
                   - logs:TagResource
                   - logs:UntagResource
                 Resource: !Sub "arn:aws:logs:*:${AWS::AccountId}:log-group:/aws/lambda/${ProjectPrefix}-*"
+              # Creating a table needs far less than changing one: CloudFormation's
+              # table handler reads the whole current configuration back on every
+              # update, and a single missing Describe fails the update AND its
+              # rollback, leaving the stack in UPDATE_ROLLBACK_FAILED. That is
+              # what enabling the stream did the first time - the table had only
+              # ever been created until then. The read side is therefore the
+              # documented update set rather than the minimum that happens to
+              # work today.
               - Effect: Allow
                 Action:
                   - dynamodb:CreateTable
@@ -227,6 +235,13 @@ Resources:
                   - dynamodb:UpdateTable
                   - dynamodb:TagResource
                   - dynamodb:UntagResource
+                  - dynamodb:ListTagsOfResource
+                  - dynamodb:DescribeContinuousBackups
+                  - dynamodb:UpdateContinuousBackups
+                  - dynamodb:DescribeTimeToLive
+                  - dynamodb:UpdateTimeToLive
+                  - dynamodb:DescribeKinesisStreamingDestination
+                  - dynamodb:DescribeContributorInsights
                 Resource: !Sub "arn:aws:dynamodb:*:${AWS::AccountId}:table/${ProjectPrefix}-*"
               - Effect: Allow
                 Action:
