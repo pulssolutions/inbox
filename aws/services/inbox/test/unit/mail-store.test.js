@@ -211,3 +211,62 @@ describe('MailStore inline images', () => {
     expect(mail.attachments[0].filename).toBe('photo.png')
   })
 })
+
+// Shaped on a real message that reached the production inbox through the
+// Google group fronting hello@puls-solutions.com.
+const VIA_GROUP = [
+  'From: Christian <christian@example.se>',
+  'To: hello@puls-solutions.com',
+  'Subject: Test',
+  'Content-Type: multipart/alternative; boundary="g1"',
+  '',
+  '--g1',
+  'Content-Type: text/plain; charset=UTF-8',
+  '',
+  'This is a third test message',
+  '',
+  'To unsubscribe from this group and stop receiving emails from it, send an email to info+unsubscribe@puls-solutions.se.',
+  '',
+  '--g1',
+  'Content-Type: text/html; charset=UTF-8',
+  '',
+  '<div dir="ltr">This is a third test message</div>',
+  '',
+  '<p></p>',
+  '',
+  'To unsubscribe from this group and stop receiving emails from it, send an email to <a href="mailto:info+unsubscribe@puls-solutions.se">info+unsubscribe@puls-solutions.se</a>.<br />',
+  '',
+  '--g1--',
+  ''
+].join('\r\n')
+
+const QUOTING_THE_FOOTER = [
+  'From: Anna <anna@example.se>',
+  'To: hello@puls-solutions.com',
+  'Subject: Re: Test',
+  'Content-Type: text/plain; charset=utf-8',
+  '',
+  '> To unsubscribe from this group and stop receiving emails from it, send an email to info+unsubscribe@puls-solutions.se.',
+  '',
+  'Vad betyder raden ovan?',
+  ''
+].join('\r\n')
+
+describe('MailStore group footer', () => {
+  it('strips the Google Groups unsubscribe line from both parts', async () => {
+    const store = new MailStore({ client: fakeClient({ k: VIA_GROUP }) })
+    const mail = await store.fetchAndParse({ bucket: 'b', key: 'k' })
+    expect(mail.text).toBe('This is a third test message')
+    expect(mail.html).toContain('This is a third test message')
+    expect(mail.html).not.toContain('unsubscribe')
+  })
+
+  it('keeps the same sentence when it is quoted content rather than a footer', async () => {
+    const store = new MailStore({
+      client: fakeClient({ k: QUOTING_THE_FOOTER })
+    })
+    const mail = await store.fetchAndParse({ bucket: 'b', key: 'k' })
+    expect(mail.text).toContain('To unsubscribe from this group')
+    expect(mail.text).toContain('Vad betyder raden ovan?')
+  })
+})

@@ -42,13 +42,32 @@ const stripBigDataUris = (html) => {
   }
 }
 
+// Google Groups appends an unsubscribe line to every message it forwards to a
+// member outside the organization. No group setting removes it - the footer
+// checkboxes cover a different footer - so mail that reaches us through a
+// support group always carries it, and without this it would also be quoted
+// into every reply. Stripped on read, never on receipt: the raw MIME in S3
+// stays the record of what actually arrived.
+//
+// Anchored to the end of the body on purpose. The same sentence inside a
+// quoted older message is content, not chrome, and must survive.
+const FOOTER =
+  'To unsubscribe from this group and stop receiving emails from it, send an email to'
+const FOOTER_TEXT = new RegExp(`\\s*${FOOTER} \\S+@\\S+\\.\\s*$`)
+const FOOTER_HTML = new RegExp(
+  `(?:<p>\\s*</p>)?\\s*${FOOTER} <a[^>]*>[^<]*</a>\\.\\s*(?:<br\\s*/?>)?\\s*$`,
+  'i'
+)
+const stripGroupFooter = (body, pattern) =>
+  body ? body.replace(pattern, '') : body
+
 const normalize = (mail) => ({
   from: mail.from?.text ?? null,
   to: mail.to?.text ?? null,
   subject: mail.subject ?? null,
   date: mail.date ? mail.date.toISOString() : null,
-  text: mail.text ?? '',
-  html: stripBigDataUris(mail.html) || null,
+  text: stripGroupFooter(mail.text ?? '', FOOTER_TEXT),
+  html: stripBigDataUris(stripGroupFooter(mail.html, FOOTER_HTML)) || null,
   attachments: (mail.attachments || []).map((a) => ({
     filename: a.filename ?? null,
     contentType: a.contentType ?? null,
