@@ -8,8 +8,10 @@ import { Database } from './database.js'
 import { Ses } from './ses.js'
 import { MailStore } from './mail-store.js'
 import { Cognito } from './cognito.js'
+import { Webhook } from './webhook.js'
 import { createApp } from './app.js'
 import { runNag } from './nag.js'
+import { handleStream } from './stream.js'
 
 let appInstance
 
@@ -36,6 +38,11 @@ const buildDefaultDeps = () => {
     ses,
     mailStore,
     cognito,
+    webhook: new Webhook({}),
+    // Whether this deployment reads the table's stream at all. False means the
+    // event source mapping was never created, so no webhook can ever fire and
+    // the settings form says so rather than offering a dead field.
+    webhookEnabled: process.env.ENABLE_WEBHOOK === 'true',
     sender: process.env.SENDER_EMAIL,
     // Every domain this environment receives on, so a reply can go back from
     // the one the customer actually addressed.
@@ -66,6 +73,13 @@ export const handler = async (event, context = {}) => {
     if (event?.source === 'aws.events') {
       const result = await runNag(getApp().deps)
       logger.info(result, 'reminder sweep')
+      return result
+    }
+    // DynamoDB stream: new rows to push to the org's webhook, not an HTTP
+    // request. Only present when the deployment enabled webhooks.
+    if (event?.Records?.[0]?.eventSource === 'aws:dynamodb') {
+      const result = await handleStream(getApp().deps, event)
+      logger.info({ failures: result.batchItemFailures.length }, 'stream batch')
       return result
     }
     return await getApp().handle(event)

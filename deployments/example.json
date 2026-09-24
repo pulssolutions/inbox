@@ -40,6 +40,11 @@
     }
   },
 
+  "features": {
+    "$comment": "Optional, all default false. `webhook` pushes every new inbound message to a URL configured per org in the app - see docs/architecture.md. It creates a DynamoDB stream reader, which polls whether or not mail arrives, so leave it off in a deployment that will not use it.",
+    "webhook": false
+  },
+
   "ops": {
     "logRetentionDays": 14,
     "mailRetentionDays": 1825,

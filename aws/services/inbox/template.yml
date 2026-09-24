@@ -85,6 +85,16 @@ Parameters:
   MailBucketName:
     Type: String
     Description: Name of the inbox-mail raw-MIME bucket (eu-west-1) the API reads from.
+  EnableWebhook:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: >
+      Whether this deployment pushes new messages to a configured webhook. The
+      table always has a stream - writing records is free - but reading one is
+      not: Lambda polls each shard four times a second whether or not mail
+      arrived, around $1-2 a month per deployment for as long as it is on. False
+      creates no event source mapping, so nothing polls and nothing is billed.
 
 Conditions:
   HasGoogleClient: !Not [!Equals [!Ref GoogleClientId, ""]]
@@ -92,6 +102,7 @@ Conditions:
   IsWww: !Equals [!Ref Environment, "www"]
   HasApiDomain: !Not [!Equals [!Ref ApiHostedZoneId, ""]]
   HasWebAppUrl: !Not [!Equals [!Ref WebAppUrl, ""]]
+  HasWebhook: !Equals [!Ref EnableWebhook, "true"]
 
 Resources:
   # ---- DynamoDB ---------------------------------------------------------
@@ -120,6 +131,11 @@ Resources:
           KeyType: RANGE
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
+      # New inbound rows, for the webhook push. Unconditional because writing
+      # stream records is free; only reading them costs, and that is what
+      # EnableWebhook gates.
+      StreamSpecification:
+        StreamViewType: NEW_IMAGE
       GlobalSecondaryIndexes:
         - IndexName: gsi1
           KeySchema:
@@ -481,6 +497,18 @@ Resources:
                 Resource:
                   - !GetAtt InboxDataTable.Arn
                   - !Sub "${InboxDataTable.Arn}/index/gsi1"
+              # Reading the table's stream, for the webhook push. Granted
+              # unconditionally: an IAM statement costs nothing, and making it
+              # conditional would mean the policy differs between two
+              # deployments of the same code for no benefit. Nothing can use it
+              # unless the event source mapping below exists.
+              - Effect: Allow
+                Action:
+                  - dynamodb:DescribeStream
+                  - dynamodb:GetRecords
+                  - dynamodb:GetShardIterator
+                  - dynamodb:ListStreams
+                Resource: !GetAtt InboxDataTable.StreamArn
               - Effect: Allow
                 Action:
                   - ses:SendEmail
@@ -539,6 +567,9 @@ Resources:
           LOCALE: !Ref Locale
           MAIL_BUCKET: !Ref MailBucketName
           MAIL_BUCKET_REGION: !Ref AWS::Region
+          # Whether anything reads the stream. The settings page asks, so it can
+          # say the feature is off rather than offer a form nothing acts on.
+          ENABLE_WEBHOOK: !Ref EnableWebhook
           # Deep-link base for notification CTAs (e.g. /m/{rootId}). Mirrors the
           # web app's hosted URL (inbox.<root> on www, <env>.inbox.<root> else).
           WEB_BASE_URL: !If
@@ -553,6 +584,35 @@ Resources:
           Value: !Ref ProjectPrefix
         - Key: Environment
           Value: !Ref Environment
+
+  # The webhook push. Created only when the deployment asked for it, because an
+  # event source mapping polls its shard four times a second forever, whether or
+  # not mail arrives - the whole running cost of this feature is this resource
+  # existing.
+  InboxStreamMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Condition: HasWebhook
+    Properties:
+      EventSourceArn: !GetAtt InboxDataTable.StreamArn
+      FunctionName: !GetAtt InboxLambda.Arn
+      # LATEST: turning the feature on should not replay whatever is still in
+      # the 24-hour window into a chat room.
+      StartingPosition: LATEST
+      BatchSize: 10
+      MaximumBatchingWindowInSeconds: 5
+      MaximumRetryAttempts: 3
+      # Without this a single unreachable receiver re-posts every message that
+      # shared its batch and already succeeded.
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
+      # New inbound, non-spam messages only. Notes, audit rows and settings
+      # carry no `direction`, so this excludes them too, and the function is
+      # never woken for them. The consumer repeats the rule - a filter is
+      # configuration, and what may reach a chat room is not.
+      FilterCriteria:
+        Filters:
+          - Pattern: >-
+              {"eventName":["INSERT"],"dynamodb":{"NewImage":{"direction":{"S":["inbound"]},"box":{"S":[{"anything-but":["spam"]}]}}}}
 
   InboxLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration

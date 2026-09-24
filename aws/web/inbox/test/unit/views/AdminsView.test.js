@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { nextTick } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { resetTestApi } from '../../setup'
+import { resetTestApi, setWebhookEnabled } from '../../setup'
 import AdminsView from '@/views/AdminsView.vue'
 import { useAdminsStore } from '@/stores/admins-store'
 import { useSettingsStore } from '@/stores/settings-store'
@@ -26,15 +26,19 @@ describe('AdminsView (integration with fetch shim)', () => {
     expect(w.find('.admin-table').exists()).toBe(false)
   })
 
-  it('swaps the admin table for the settings placeholder', async () => {
+  it('swaps the admin table for the settings panel', async () => {
     const w = mountView()
     await flushPromises()
     await w.find('[data-testid="tab-settings"]').trigger('click')
     expect(w.find('.admin-table').exists()).toBe(false)
     expect(w.find('[data-testid="add-admin"]').exists()).toBe(false)
-    expect(w.find('[data-testid="settings-panel"]').text()).toContain('Settings here later')
+    // Every setting lives here, and none of it on the Admins tab.
+    expect(w.find('[data-testid="default-notify-reply"]').exists()).toBe(true)
+    expect(w.find('[data-testid="webhook-url"]').exists()).toBe(true)
     await w.find('[data-testid="tab-admins"]').trigger('click')
     expect(w.find('.admin-table').exists()).toBe(true)
+    expect(w.find('[data-testid="default-notify-reply"]').exists()).toBe(false)
+    expect(w.find('[data-testid="webhook-url"]').exists()).toBe(false)
   })
 
   it('lists admins with role + categories', async () => {
@@ -117,10 +121,12 @@ describe('AdminsView (integration with fetch shim)', () => {
   it('lets a superadmin change the org default', async () => {
     const w = mountView()
     await flushPromises()
+    await w.find('[data-testid="tab-settings"]').trigger('click')
     await w.find('[data-testid="default-notify-reply"]').setValue('on')
     await flushPromises()
     expect(useSettingsStore().notifyDefaults.reply).toBe(true)
     // and the per-admin inherit label follows it
+    await w.find('[data-testid="tab-admins"]').trigger('click')
     await w.find('[data-testid="add-admin"]').trigger('click')
     expect(w.find('[data-testid="f-notify-reply"]').findAll('option')[0].text()).toContain('På')
   })
@@ -131,5 +137,56 @@ describe('AdminsView (integration with fetch shim)', () => {
     await w.find('[data-testid="add-admin"]').trigger('click')
     await w.find('[data-testid="f-role"]').setValue('superadmin')
     expect(w.find('[data-testid="f-categories"]').exists()).toBe(false)
+  })
+
+  describe('webhook', () => {
+    const openSettings = async () => {
+      const w = mountView()
+      await flushPromises()
+      await w.find('[data-testid="tab-settings"]').trigger('click')
+      return w
+    }
+
+    it('saves what was typed, and only on the button', async () => {
+      const w = await openSettings()
+      await w.find('[data-testid="webhook-url"]').setValue('https://3.basecamp.com/1/i/t/lines')
+      await w.find('[data-testid="webhook-template"]').setValue('<b>{{subject}}</b>')
+      // Typing alone must not write a half-finished template.
+      expect(useSettingsStore().webhook.url).toBe('')
+      await w.find('[data-testid="webhook-save"]').trigger('click')
+      await flushPromises()
+      expect(useSettingsStore().webhook).toMatchObject({
+        url: 'https://3.basecamp.com/1/i/t/lines',
+        template: '<b>{{subject}}</b>'
+      })
+    })
+
+    it('reports what the server said when it refuses the template', async () => {
+      const w = await openSettings()
+      await w.find('[data-testid="webhook-template"]').setValue('{{nope}}')
+      await w.find('[data-testid="webhook-save"]').trigger('click')
+      await flushPromises()
+      expect(w.find('[data-testid="webhook-error"]').text()).toContain('Unknown placeholder nope')
+    })
+
+    it('tests only once a url is saved, and shows the outcome', async () => {
+      const w = await openSettings()
+      expect(w.find('[data-testid="webhook-test"]').attributes('disabled')).toBeDefined()
+      await w.find('[data-testid="webhook-url"]').setValue('https://3.basecamp.com/1/i/t/lines')
+      await w.find('[data-testid="webhook-save"]').trigger('click')
+      await flushPromises()
+      await w.find('[data-testid="webhook-test"]').trigger('click')
+      await flushPromises()
+      expect(w.find('[data-testid="webhook-test-result"]').text()).toContain('levererades')
+    })
+
+    it('says so instead of offering a form when the deployment has webhooks off', async () => {
+      setWebhookEnabled(false)
+      const w = await openSettings()
+      expect(w.find('[data-testid="webhook-off"]').exists()).toBe(true)
+      expect(w.find('[data-testid="webhook-url"]').exists()).toBe(false)
+      // The notification defaults are unaffected - they are not the webhook.
+      expect(w.find('[data-testid="default-notify-reply"]').exists()).toBe(true)
+    })
   })
 })

@@ -154,3 +154,37 @@ walked into twice.
 
 Spam cannot be deleted permanently without archiving it first — `remove` still
 requires `box === 'archived'` — and search still spans every box, spam included.
+
+## 2026-09-24: Webhook push is a user-authored template, off by default
+
+New inbound messages can be pushed to a URL configured per org. The immediate
+need is the Basecamp Campfire the Zendesk queue posts to today — the inbox
+cannot replace Zendesk until issues show up in the same room — but other
+receivers are expected, so the payload is configuration rather than code: a
+template of HTML with `{{placeholder}}` names, and a JSON envelope carrying one
+`{{content}}`. That pair reaches Campfire, Slack, Teams and Discord without a
+deploy, and without a template engine, which a flat message does not need.
+
+The two substitutions escape, and that is the whole safety argument for letting
+an admin type HTML: placeholders are HTML-escaped, `{{content}}` is
+JSON-escaped, and an unknown placeholder is refused at save time rather than
+rendering blank forever. `test/unit/webhook.test.js` holds all three.
+
+**Delivery runs off the table's DynamoDB stream, in the API's own Lambda.** Not
+in the parse Lambda, which is inline CloudFormation with no dependencies: it has
+no MIME parser, so there would be no message body without hand-rolling one, it
+already carries two hand-copied duplicates of service code, and it has no retry.
+The stream brings the body, a real test seam and partial-batch retries.
+
+**Reading the stream is off unless the profile asks** (`features.webhook` →
+`EnableWebhook`). The stream itself is unconditional because writing records is
+free; the reader is not. A Lambda event source mapping polls each shard four
+times a second whether or not mail arrives — around $1-2 a month, a floor that
+does not scale with volume. Raadalen runs this code in its own account and wants
+no webhooks, so it should not pay for one. Gating the reader rather than the
+stream also keeps the table's properties unconditional.
+
+Deliberately not built: no list of targets (the settings row is already per org,
+and another deployment is another account), no dead-letter queue (the raw MIME
+in S3 remains the record, and a missed chat line is not data loss), and no
+idempotency keys — delivery is at-least-once and the docs say so.

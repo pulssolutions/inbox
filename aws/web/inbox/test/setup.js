@@ -81,7 +81,26 @@ const seed = () => [
   }
 ]
 
-const state = { messages: [], notes: [], admins: [], audit: [], notifyDefaults: null }
+// Mirrors WEBHOOK_DEFAULTS in the service, with the feature on so the form is
+// reachable; a test that wants it off overrides `webhook.enabled`.
+const WEBHOOK_DEFAULTS = {
+  enabled: true,
+  url: '',
+  template: '<blockquote>{{body}}</blockquote>',
+  envelope: '{"content":"{{content}}"}',
+  token: '',
+  onNewIssue: true,
+  onReply: true
+}
+
+const state = {
+  messages: [],
+  notes: [],
+  admins: [],
+  audit: [],
+  notifyDefaults: null,
+  webhook: null
+}
 let replyCounter = 0
 let noteCounter = 0
 
@@ -90,10 +109,17 @@ const seedAdmins = () => [
   { email: 'leader@acme.example', name: 'Leader', role: 'admin', active: true, categories: ['kurser'] }
 ]
 
+// Whether the deployment reads the stream at all. A test that wants the feature
+// off says so here, the way the real API reports it from an env var.
+export const setWebhookEnabled = (enabled) => {
+  state.webhook = { ...state.webhook, enabled }
+}
+
 export const resetTestApi = () => {
   state.messages = seed().map((m) => ({ state: 'open', ...m }))
   state.notes = []
   state.notifyDefaults = null
+  state.webhook = null
   state.admins = seedAdmins()
   state.audit = [
     { id: 'a3', ts: '2026-06-03T13:00:00Z', actor: { email: 'boss@acme.example', name: 'Boss' }, action: 'state', targetType: 'message', targetLabel: 'Agility?', meta: { state: { from: 'open', to: 'done' } } },
@@ -305,16 +331,35 @@ const handle = async (input, init = {}) => {
     return jsonResponse(200, state.audit)
   }
 
+  // Both settings groups, always - the real API answers with every group so the
+  // client's state cannot drift from the server's.
+  const settingsBody = () => ({
+    notifyDefaults: { newIssue: true, reply: false, ...state.notifyDefaults },
+    webhook: { ...WEBHOOK_DEFAULTS, ...state.webhook }
+  })
   if (path === '/admin/settings' && method === 'GET') {
-    return jsonResponse(200, {
-      notifyDefaults: { newIssue: true, reply: false, ...state.notifyDefaults }
-    })
+    return jsonResponse(200, settingsBody())
   }
   if (path === '/admin/settings' && method === 'PATCH') {
-    state.notifyDefaults = { ...state.notifyDefaults, ...body.notifyDefaults }
-    return jsonResponse(200, {
-      notifyDefaults: { newIssue: true, reply: false, ...state.notifyDefaults }
-    })
+    if (body.notifyDefaults) {
+      state.notifyDefaults = { ...state.notifyDefaults, ...body.notifyDefaults }
+    }
+    if (body.webhook) {
+      if (body.webhook.template?.includes('{{nope}}')) {
+        return jsonResponse(400, { code: 'WEBHOOK_INVALID', message: 'Unknown placeholder nope' })
+      }
+      // `enabled` is the deployment's answer, not the org's - never stored.
+      const patch = { ...body.webhook }
+      delete patch.enabled
+      state.webhook = { ...state.webhook, ...patch }
+    }
+    return jsonResponse(200, settingsBody())
+  }
+  if (path === '/admin/settings/webhook/test' && method === 'POST') {
+    const url = { ...WEBHOOK_DEFAULTS, ...state.webhook }.url
+    return url
+      ? jsonResponse(200, { delivered: true, status: 201, error: null })
+      : jsonResponse(400, { code: 'WEBHOOK_NO_URL', message: 'Configure a URL first' })
   }
 
   if (path === '/admin/admins' && method === 'GET') {

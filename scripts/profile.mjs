@@ -305,7 +305,10 @@ const STACKS = {
     // RootDomainName (the parent domain), so a delegated child zone would not
     // cover it and ACM validation would hang there until the stack rolled back.
     // Opt in explicitly, with a zone that really contains the API hostname.
-    ApiHostedZoneId: envConfig(p, env).api.hostedZoneId
+    ApiHostedZoneId: envConfig(p, env).api.hostedZoneId,
+    // Off unless the deployment asks: the event source mapping this creates
+    // polls the table's stream forever, whether or not mail arrives.
+    EnableWebhook: String(p.features?.webhook ?? false)
   }),
 
   certificates: (p, env) => ({

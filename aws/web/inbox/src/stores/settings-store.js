@@ -1,21 +1,35 @@
 import { defineStore } from 'pinia'
-import { loadSettingsAPI, updateSettingsAPI } from '@/services/settings-service'
+import { loadSettingsAPI, updateSettingsAPI, testWebhookAPI } from '@/services/settings-service'
 
-// Org-wide defaults for admins who have made no choice of their own. The API
-// always answers with both events resolved, so there is no null to handle here.
+// Org-wide settings: notification defaults for admins who have made no choice
+// of their own, and the webhook that pushes new messages onwards. The API
+// always answers with every group resolved, so there is no null to handle here.
 export const useSettingsStore = defineStore('settings-store', {
   state: () => ({
     notifyDefaults: { newIssue: true, reply: false },
-    loading: { load: false, save: false },
-    error: { load: null, save: null }
+    webhook: {
+      // `enabled` is the deployment's answer, not the org's: false means
+      // nothing reads the stream, so nothing would act on what is saved here.
+      enabled: false,
+      url: '',
+      template: '',
+      envelope: '',
+      token: '',
+      onNewIssue: true,
+      onReply: true
+    },
+    loading: { load: false, save: false, webhook: false, test: false },
+    error: { load: null, save: null, webhook: null },
+    testResult: null
   }),
   actions: {
     async loadSettingsAction() {
       this.loading.load = true
       this.error.load = null
       try {
-        const { notifyDefaults } = await loadSettingsAPI()
+        const { notifyDefaults, webhook } = await loadSettingsAPI()
         this.notifyDefaults = notifyDefaults
+        this.webhook = webhook
       } catch (e) {
         this.error.load = e
         throw e
@@ -36,6 +50,38 @@ export const useSettingsStore = defineStore('settings-store', {
       } finally {
         this.loading.save = false
       }
+    },
+
+    // Saved on an explicit button, unlike the notify selects: a half-typed
+    // template should not be written on every keystroke.
+    async updateWebhookAction(patch) {
+      this.loading.webhook = true
+      this.error.webhook = null
+      this.testResult = null
+      try {
+        const { webhook } = await updateSettingsAPI({ webhook: patch })
+        this.webhook = webhook
+      } catch (e) {
+        this.error.webhook = e
+        throw e
+      } finally {
+        this.loading.webhook = false
+      }
+    },
+
+    async testWebhookAction() {
+      this.loading.test = true
+      this.testResult = null
+      try {
+        this.testResult = await testWebhookAPI()
+      } catch (e) {
+        // A refused test is the answer, not a crash - reporting it is the whole
+        // point of the button.
+        this.testResult = { delivered: false, error: e?.message || 'Kunde inte testa' }
+      } finally {
+        this.loading.test = false
+      }
+      return this.testResult
     }
   }
 })

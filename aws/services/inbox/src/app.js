@@ -40,7 +40,10 @@ export const buildRoutes = () => ({
   // could use it. PATCH, not PUT: the API has no PUT proxy route, and this
   // merges rather than replaces.
   'GET /admin/settings': wrapAdmin('admins.read', settings.get),
-  'PATCH /admin/settings': wrapAdmin('admins.write', settings.update)
+  'PATCH /admin/settings': wrapAdmin('admins.write', settings.update),
+  // Posts the saved template for real, so a receiver that rejects it is found
+  // here rather than by a customer mail that quietly went nowhere.
+  'POST /admin/settings/webhook/test': wrapAdmin('admins.write', settings.test)
 })
 
 // API Gateway routes admin paths through per-method proxies

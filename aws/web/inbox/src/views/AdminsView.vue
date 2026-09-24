@@ -27,7 +27,133 @@
     </div>
 
     <div v-if="tab === 'settings'" class="page-body" data-testid="settings-panel">
-      <p class="muted">Settings here later</p>
+      <section class="notify-defaults">
+        <h2>E-post som standard</h2>
+        <p class="muted">
+          Gäller administratörer som inte valt något eget. Var och en kan sätta
+          sitt eget värde under Admins.
+        </p>
+        <div v-for="e in NOTIFY_EVENTS" :key="e.key" class="notify-row">
+          <label class="form-label" :for="`default-notify-${e.key}`">{{ e.label }}</label>
+          <select
+            :id="`default-notify-${e.key}`"
+            class="form-control"
+            :data-testid="`default-notify-${e.key}`"
+            :value="settings.notifyDefaults[e.key] ? 'on' : 'off'"
+            :disabled="settings.loading.save"
+            @change="saveDefault(e.key, $event.target.value)"
+          >
+            <option value="on">På</option>
+            <option value="off">Av</option>
+          </select>
+        </div>
+        <p v-if="settings.error.save" class="form-error">Kunde inte spara standardvärdet.</p>
+      </section>
+
+      <section class="webhook">
+        <h2>Webhook</h2>
+        <p v-if="!settings.webhook.enabled" class="muted" data-testid="webhook-off">
+          Webhooks är avstängda i den här installationen.
+        </p>
+        <template v-else>
+          <p class="muted">
+            Skickar varje nytt meddelande vidare till en adress, till exempel en
+            Basecamp-campfire. Tom adress stänger av.
+          </p>
+
+          <div class="field">
+            <label class="form-label" for="webhook-url">Adress</label>
+            <input
+              id="webhook-url"
+              v-model="webhookForm.url"
+              class="form-control"
+              type="url"
+              data-testid="webhook-url"
+              placeholder="https://3.basecamp.com/…/lines"
+            />
+          </div>
+
+          <div v-for="e in WEBHOOK_EVENTS" :key="e.key" class="notify-row">
+            <label class="form-label" :for="`webhook-${e.key}`">{{ e.label }}</label>
+            <select
+              :id="`webhook-${e.key}`"
+              class="form-control"
+              :data-testid="`webhook-${e.key}`"
+              :value="webhookForm[e.key] ? 'on' : 'off'"
+              @change="webhookForm[e.key] = $event.target.value === 'on'"
+            >
+              <option value="on">På</option>
+              <option value="off">Av</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label class="form-label" for="webhook-template">Mall</label>
+            <p class="muted hint">Platshållare: {{ PLACEHOLDER_HINT }}</p>
+            <textarea
+              id="webhook-template"
+              v-model="webhookForm.template"
+              class="form-control template"
+              data-testid="webhook-template"
+              rows="8"
+            />
+          </div>
+
+          <details class="advanced">
+            <summary>Avancerat</summary>
+            <div class="field">
+              <label class="form-label" for="webhook-envelope">JSON-kropp</label>
+              <p class="muted hint">Måste innehålla {{ CONTENT_TOKEN }}.</p>
+              <input
+                id="webhook-envelope"
+                v-model="webhookForm.envelope"
+                class="form-control"
+                data-testid="webhook-envelope"
+              />
+            </div>
+            <div class="field">
+              <label class="form-label" for="webhook-token">Hemlighet</label>
+              <p class="muted hint">Skickas som X-Inbox-Token. Lämna tom om mottagaren inte vill ha någon.</p>
+              <input
+                id="webhook-token"
+                v-model="webhookForm.token"
+                class="form-control"
+                data-testid="webhook-token"
+              />
+            </div>
+          </details>
+
+          <div class="webhook-actions">
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              data-testid="webhook-save"
+              :disabled="settings.loading.webhook"
+              @click="saveWebhook"
+            >
+              Spara
+            </button>
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              data-testid="webhook-test"
+              :disabled="settings.loading.test || !settings.webhook.url"
+              @click="settings.testWebhookAction()"
+            >
+              Skicka test
+            </button>
+          </div>
+
+          <p v-if="settings.error.webhook" class="form-error" data-testid="webhook-error">
+            {{ webhookError }}
+          </p>
+          <p v-else-if="settings.testResult" class="test-result" data-testid="webhook-test-result">
+            {{ settings.testResult.delivered
+              ? 'Testet levererades.'
+              : `Testet gick inte fram: ${settings.testResult.error}` }}
+          </p>
+        </template>
+      </section>
     </div>
 
     <div v-else class="page-body">
@@ -71,28 +197,6 @@
         + Ny admin
       </button>
 
-      <section class="notify-defaults">
-        <h2>E-post som standard</h2>
-        <p class="muted">
-          Gäller administratörer som inte valt något eget. Var och en kan sätta
-          sitt eget värde i listan ovan.
-        </p>
-        <div v-for="e in NOTIFY_EVENTS" :key="e.key" class="notify-row">
-          <label class="form-label" :for="`default-notify-${e.key}`">{{ e.label }}</label>
-          <select
-            :id="`default-notify-${e.key}`"
-            class="form-control"
-            :data-testid="`default-notify-${e.key}`"
-            :value="settings.notifyDefaults[e.key] ? 'on' : 'off'"
-            :disabled="settings.loading.save"
-            @change="saveDefault(e.key, $event.target.value)"
-          >
-            <option value="on">På</option>
-            <option value="off">Av</option>
-          </select>
-        </div>
-        <p v-if="settings.error.save" class="form-error">Kunde inte spara standardvärdet.</p>
-      </section>
     </div>
 
     <Modal :open="modalOpen" :title="editing ? 'Ändra admin' : 'Ny admin'" @close="modalOpen = false">
@@ -162,6 +266,27 @@ const NOTIFY_EVENTS = [
   { key: 'reply', field: 'notifyReply', label: 'Svar och aktivitet i ärende' }
 ]
 
+// What the webhook fires on. Spam never does, whatever is set here.
+const WEBHOOK_EVENTS = [
+  { key: 'onNewIssue', label: 'Nytt ärende' },
+  { key: 'onReply', label: 'Svar i ärende' }
+]
+
+// Vue's parser reads a literal `{{` inside an interpolation as the closing
+// brace, so the placeholder names are built here rather than written in markup.
+const CONTENT_TOKEN = '{{content}}'
+
+const PLACEHOLDER_HINT = [
+  'subject', 'from', 'fromName', 'fromEmail', 'category', 'orgName',
+  'messageId', 'threadId', 'url', 'receivedAt', 'body'
+].map((n) => `{{${n}}}`).join(' ')
+
+// The webhook saves on a button, so the form is a local copy rather than the
+// store's - a half-typed template should not be written on every keystroke.
+const webhookForm = reactive({
+  url: '', template: '', envelope: '', token: '', onNewIssue: true, onReply: true
+})
+
 const toChoice = (v) => (v === true ? 'on' : v === false ? 'off' : 'inherit')
 const fromChoice = (v) => (v === 'on' ? true : v === 'off' ? false : null)
 
@@ -185,10 +310,28 @@ const blankForm = () => ({
 
 const form = reactive(blankForm())
 
-onMounted(() => {
+onMounted(async () => {
   store.loadAdminsAction()
-  settings.loadSettingsAction()
+  await settings.loadSettingsAction()
+  const { enabled, ...saved } = settings.webhook
+  Object.assign(webhookForm, saved)
 })
+
+const saveWebhook = async () => {
+  try {
+    await settings.updateWebhookAction({ ...webhookForm })
+  } catch {
+    // Reported through settings.error.webhook, below the form.
+  }
+}
+
+// The server's own words when it refused the input - an unknown placeholder or
+// a URL it will not fetch - because those name what to fix.
+const webhookError = computed(() =>
+  settings.error.webhook?.code === 'WEBHOOK_INVALID'
+    ? settings.error.webhook.message
+    : 'Kunde inte spara.'
+)
 
 const saveDefault = (key, value) =>
   settings.updateNotifyDefaultsAction({ [key]: value === 'on' })
@@ -304,6 +447,45 @@ const onDelete = async (a) => {
 }
 .notify-row .form-control {
   width: 200px;
+}
+.webhook {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  max-width: 640px;
+}
+.webhook h2 {
+  font-size: 15px;
+  margin: 0 0 4px;
+}
+.field {
+  margin-top: 12px;
+}
+.hint {
+  font-size: 0.8rem;
+  margin: 2px 0 6px;
+  word-break: break-word;
+}
+.template {
+  font-family: ui-monospace, monospace;
+  font-size: 0.82rem;
+}
+.advanced {
+  margin-top: 16px;
+}
+.advanced summary {
+  cursor: pointer;
+  font-size: 0.86rem;
+  color: var(--fg-2);
+}
+.webhook-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+.test-result {
+  font-size: 0.86rem;
+  margin-top: 12px;
 }
 .stack-12 {
   display: flex;

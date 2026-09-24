@@ -51,3 +51,20 @@ the main privacy consideration.
 - Outbound is DKIM-signed via the verified domain identity.
 - Until SES production access is granted, sending reaches only verified
   addresses — a sandbox, not a security control.
+
+## Webhook
+
+- The URL is typed in by a superadmin and fetched by the server, so it is
+  validated as a trust boundary: `https` only, and private or link-local hosts
+  are refused. The Lambda has no VPC and no instance metadata, so this is
+  defence in depth rather than the only control.
+- Only `admins.write` can configure it — the same bar as managing admins, which
+  is right for a field that decides where message metadata is sent.
+- The optional shared secret is sent as `X-Inbox-Token` and is **redacted in the
+  audit log**, which every superadmin can read and which is kept forever.
+- Template placeholders are HTML-escaped and `{{content}}` is JSON-escaped, so
+  neither an admin's template nor a customer's message can inject markup into
+  the receiver or malform the request body.
+- What leaves the account is whatever the template asks for, up to and including
+  the message body. The body is truncated, never the whole thread, and the
+  default template quotes it.
