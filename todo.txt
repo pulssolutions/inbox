@@ -1,7 +1,0 @@
-1. spam protection
-
-Some kind of simple spam protection, preferably using an existing open source library. Should tag incoming mail as spam (not delete) and skip email notification. Spam-tagged email is visible in its own section "Spam" below "Arkiverade". It should be possible to un-tag the spam tag so it appears in regular section.
-
-2. configurable webhook push on new inbox item, should be configurable in UI. While doing this we also change top menu to "Admin" and put "Admins" in a new tab on the "Admin" page and "Settings" as the other tabs (where right now the only setting is for webhook). 
-
-3. TODO
