@@ -106,6 +106,15 @@ describe('messages.list', () => {
     expect(res.map((m) => m.messageId)).toEqual(['b'])
   })
 
+  it('lists the spam box when requested, and keeps it out of the inbox', async () => {
+    await deps.db.putMessage({ org: ORG, message: baseMessage({ messageId: 'junk', box: 'spam' }) })
+    await deps.db.putMessage({ org: ORG, message: baseMessage() })
+    expect((await list({ deps, org: ORG, query: {} })).map((m) => m.messageId)).toEqual(['m1'])
+    expect(
+      (await list({ deps, org: ORG, query: { box: 'spam' } })).map((m) => m.messageId)
+    ).toEqual(['junk'])
+  })
+
   it('lists archived box when requested', async () => {
     await deps.db.putMessage({ org: ORG, message: baseMessage({ messageId: 'arch', box: 'archived' }) })
     const inbox = await list({ deps, org: ORG, query: {} })
@@ -244,6 +253,29 @@ describe('messages.updateStatus', () => {
     expect(log).toHaveLength(1)
     expect(log[0]).toMatchObject({ action: 'archive', targetId: 'm1', actor: { email: 'boss@x.se' } })
     expect(log[0].meta.box).toEqual({ from: 'inbox', to: 'archived' })
+  })
+
+  it('marks spam by moving the box, logged as its own action', async () => {
+    await deps.db.putMessage({ org: ORG, message: baseMessage() })
+    await updateStatus({
+      deps,
+      org: ORG,
+      pathParameters: { messageId: 'm1' },
+      body: { box: 'spam' },
+      claims: { email: 'boss@x.se' }
+    })
+    const spam = await deps.db.listMessagesByBox({ org: ORG, box: 'spam' })
+    expect(spam.map((m) => m.messageId)).toEqual(['m1'])
+    expect(await deps.db.listMessagesByBox({ org: ORG, box: 'inbox' })).toHaveLength(0)
+    const log = await deps.db.listAudit({ org: ORG })
+    expect(log[0]).toMatchObject({ action: 'spam', targetId: 'm1' })
+  })
+
+  it('rejects a box that is not one of the three', async () => {
+    await deps.db.putMessage({ org: ORG, message: baseMessage() })
+    await expect(
+      updateStatus({ deps, org: ORG, pathParameters: { messageId: 'm1' }, body: { box: 'junk' } })
+    ).rejects.toMatchObject({ name: 'ValidationError', code: 'BOX_INVALID' })
   })
 
   it('rejects an invalid status', async () => {

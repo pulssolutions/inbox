@@ -30,6 +30,14 @@ describe('InboxSidebar', () => {
     expect(w.emitted('select-box')[0]).toEqual(['archived'])
   })
 
+  it('emits select-box for Spam, and hides the categories there', async () => {
+    const w = mount(InboxSidebar, { props: { box: 'inbox', categories } })
+    await w.find('[data-testid="filter-spam"]').trigger('click')
+    expect(w.emitted('select-box')[0]).toEqual(['spam'])
+    const spamView = mount(InboxSidebar, { props: { box: 'spam', categories } })
+    expect(spamView.text()).not.toContain('Kategorier')
+  })
+
   it('emits select-assignment for Mina / Ej tilldelade', async () => {
     const w = mount(InboxSidebar, { props: { box: 'inbox', categories } })
     await w.find('[data-testid="filter-mine"]').trigger('click')

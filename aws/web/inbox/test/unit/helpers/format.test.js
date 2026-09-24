@@ -70,7 +70,12 @@ describe('auditDetail', () => {
       .toBe('Status: Öppen → Klar')
   })
   it('describes archive + reply + admin changes', () => {
-    expect(auditDetail({ action: 'archive', meta: {} })).toContain('Arkiverade')
+    expect(
+      auditDetail({ action: 'archive', meta: { box: { from: 'inbox', to: 'archived' } } })
+    ).toBe('Flyttad: Inkorg → Arkiverade')
+    expect(
+      auditDetail({ action: 'spam', meta: { box: { from: 'inbox', to: 'spam' } } })
+    ).toBe('Flyttad: Inkorg → Spam')
     expect(auditDetail({ action: 'reply', meta: { to: 'a@b.se' } })).toContain('a@b.se')
     expect(auditDetail({ action: 'admin.update', meta: { role: 'admin', categories: ['kurser'] } }))
       .toContain('kurser')

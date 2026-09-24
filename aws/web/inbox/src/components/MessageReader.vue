@@ -61,21 +61,22 @@
         >
           <option v-for="s in STATES" :key="s.value" :value="s.value">{{ s.label }}</option>
         </select>
-        <button
-          v-if="message.box !== 'archived'"
-          type="button"
-          class="btn btn-secondary btn-sm"
-          data-testid="archive"
-          @click="$emit('archive', message.messageId)"
-        >
-          Arkivera
-        </button>
-        <template v-else>
+        <template v-if="message.box === 'spam'">
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            data-testid="not-spam"
+            @click="$emit('move', message.messageId, 'inbox')"
+          >
+            Inte spam
+          </button>
+        </template>
+        <template v-else-if="message.box === 'archived'">
           <button
             type="button"
             class="btn btn-secondary btn-sm"
             data-testid="unarchive"
-            @click="$emit('unarchive', message.messageId)"
+            @click="$emit('move', message.messageId, 'inbox')"
           >
             Återställ
           </button>
@@ -86,6 +87,24 @@
             @click="$emit('delete', message.messageId)"
           >
             Ta bort permanent
+          </button>
+        </template>
+        <template v-else>
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            data-testid="archive"
+            @click="$emit('move', message.messageId, 'archived')"
+          >
+            Arkivera
+          </button>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm"
+            data-testid="mark-spam"
+            @click="$emit('move', message.messageId, 'spam')"
+          >
+            Spam
           </button>
         </template>
       </div>
@@ -320,8 +339,7 @@ const props = defineProps({
   attachmentBusy: { type: String, default: null }
 })
 const emit = defineEmits([
-  'archive',
-  'unarchive',
+  'move',
   'delete',
   'reply',
   'back',

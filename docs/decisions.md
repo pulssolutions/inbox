@@ -126,3 +126,31 @@ defaults **off** — a deployment nobody has configured should not mail people w
 never asked for it. Because unset must therefore mean "inherit" rather than
 "on", `null` is a stored value here, and a row written before the split (no
 `notifyReply` key at all) keeps its old behaviour until it is next edited.
+
+## 2026-09-24: Spam is a third box, decided by the SES verdict
+
+Inbound spam is tagged, never dropped: a false positive that silently deletes a
+customer's mail is far worse than one that files it in the wrong folder. The tag
+is a third value of the existing `box` attribute — `inbox`, `archived`, `spam` —
+so it inherits the machinery already there: `box` moves the row's `gsi1` list
+partition, which means spam disappears from the inbox with no read-side filter
+and no new index, and the daily reminder sweep (which queries `box: 'inbox'`)
+skips it without a line of code. Un-tagging is the same `PATCH` as
+un-archiving. An admin can also mark a message spam by hand.
+
+No spam-filtering library. The receipt rule already has `ScanEnabled: true`, so
+SES scans every message and hands the parse Lambda `spamVerdict` and
+`virusVerdict` — a detector already running, already paid for, and one that
+needs no dependency in a Lambda whose whole point is that it has none.
+
+Only a hard `FAIL` counts. `GRAY` is SES's "maybe" and `PROCESSING_FAILED` is
+"no idea"; on a maybe, letting spam through costs less than hiding real mail.
+The SPF, DKIM and DMARC verdicts are deliberately not consulted, although they
+look like obvious signals: mail reaches the inbox forwarded through a Google
+group, which breaks SPF, re-signs over a rewritten `From:` and so fails DMARC
+for entirely legitimate senders. Folding them in would file real customer mail
+as spam. `test/spam-rule.test.mjs` asserts exactly that, so the trap cannot be
+walked into twice.
+
+Spam cannot be deleted permanently without archiving it first — `remove` still
+requires `box === 'archived'` — and search still spans every box, spam included.

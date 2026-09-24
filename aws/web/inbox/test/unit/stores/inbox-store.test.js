@@ -159,27 +159,41 @@ describe('inbox-store', () => {
     expect(s.messages[0].status).toBe('read')
   })
 
-  it('archiveMessageAction removes from inbox list and clears current', async () => {
-    updateMessageAPI.mockResolvedValueOnce({ ...msg(), box: 'archived' })
+  it.each([
+    ['inbox', 'archived'],
+    ['inbox', 'spam'],
+    ['archived', 'inbox'],
+    ['spam', 'inbox']
+  ])('moveMessageAction %s → %s drops the row and clears current', async (from, to) => {
+    updateMessageAPI.mockResolvedValueOnce({ ...msg(), box: to })
     const s = useInboxStore()
-    s.messages = [msg()]
-    s.current = { ...msg() }
-    await s.archiveMessageAction('m1')
-    expect(updateMessageAPI).toHaveBeenCalledWith('m1', { box: 'archived' })
+    s.filters.box = from
+    s.messages = [msg({ box: from })]
+    s.current = { ...msg({ box: from }) }
+    await s.moveMessageAction('m1', to)
+    expect(updateMessageAPI).toHaveBeenCalledWith('m1', { box: to })
     expect(s.messages).toHaveLength(0)
     expect(s.current).toBeNull()
   })
 
-  it('unarchiveMessageAction moves the message back to inbox and clears current', async () => {
-    updateMessageAPI.mockResolvedValueOnce({ ...msg(), box: 'inbox' })
+  it('moveMessageAction keeps the row when it is not leaving the box in view', async () => {
+    updateMessageAPI.mockResolvedValueOnce({ ...msg(), box: 'spam' })
     const s = useInboxStore()
-    s.filters.box = 'archived'
-    s.messages = [msg({ box: 'archived' })]
-    s.current = { ...msg({ box: 'archived' }) }
-    await s.unarchiveMessageAction('m1')
-    expect(updateMessageAPI).toHaveBeenCalledWith('m1', { box: 'inbox' })
-    expect(s.messages).toHaveLength(0)
-    expect(s.current).toBeNull()
+    s.filters.box = 'spam'
+    s.messages = [msg({ box: 'spam' })]
+    await s.moveMessageAction('m1', 'spam')
+    expect(s.messages).toHaveLength(1)
+  })
+
+  it('moveMessageAction rolls the list back when the API fails', async () => {
+    updateMessageAPI.mockRejectedValueOnce(new Error('nope'))
+    const s = useInboxStore()
+    s.messages = [msg()]
+    s.current = { ...msg() }
+    await expect(s.moveMessageAction('m1', 'spam')).rejects.toThrow('nope')
+    expect(s.messages).toHaveLength(1)
+    expect(s.current).not.toBeNull()
+    expect(s.error.update).toBeTruthy()
   })
 
   it('transferMessageAction drops the row, clears current and re-lists', async () => {

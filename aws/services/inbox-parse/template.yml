@@ -430,6 +430,20 @@ Resources:
           }
           // --- end recipient pick ---
 
+          // --- spam rule ---
+          // SES already scanned this message - ScanEnabled is on the receipt
+          // rule - and put its verdicts in the event, so no filter library is
+          // needed. Only a hard FAIL counts: GRAY is SES's "maybe" and
+          // PROCESSING_FAILED is "no idea", and hiding real customer mail on a
+          // maybe costs more than letting spam through. spf/dkim/dmarc are
+          // deliberately not consulted: mail reaches us forwarded through a
+          // Google group, which breaks all three for legitimate senders.
+          const isSpam = (receipt) => {
+            const status = (k) => (receipt && receipt[k] && receipt[k].status) || ''
+            return status('spamVerdict') === 'FAIL' || status('virusVerdict') === 'FAIL'
+          }
+          // --- end spam rule ---
+
           // Message-ID tokens referenced by a reply (In-Reply-To + References).
           const referencedIds = (headers) => {
             const ids = []
@@ -509,7 +523,7 @@ Resources:
             const item = {
               pk: { S: org + ':message' },
               sk: { S: m.messageId },
-              gsi1pk: { S: org + ':message:inbox' },
+              gsi1pk: { S: org + ':message:' + (m.box || 'inbox') },
               gsi1sk: { S: m.receivedAt + '#' + m.messageId },
               messageId: { S: m.messageId },
               threadId: { S: m.threadId || m.messageId },
@@ -522,7 +536,7 @@ Resources:
               status: { S: 'unread' },
               state: { S: 'open' },
               direction: { S: 'inbound' },
-              box: { S: 'inbox' },
+              box: { S: m.box || 'inbox' },
               s3Bucket: { S: m.s3Bucket },
               s3Key: { S: m.s3Key }
             }
@@ -547,6 +561,7 @@ Resources:
               const s3Key = PREFIX + mail.messageId
               const tenant = picked.tenant
               const org = tenant ? tenant.org : null
+              const spam = isSpam(r.ses.receipt)
 
               if (org) {
                 // Thread replies via In-Reply-To / References → existing message.
@@ -562,6 +577,7 @@ Resources:
                     receivedAt,
                     s3Bucket: process.env.BUCKET,
                     s3Key,
+                    box: spam ? 'spam' : 'inbox',
                     mailMessageId: h.messageId || null,
                     threadId: parent ? parent.threadId : null,
                     inReplyTo: parent ? parent.messageId : null
@@ -569,15 +585,19 @@ Resources:
                   // Reply to a finished thread reopens it + bumps it to the top.
                   if (parent) await reopenThread(org, parent.threadId, receivedAt)
                   // Notify the responsible admins (new issue or inbound reply).
-                  await notifyAdmins({
-                    org,
-                    orgName: tenant.name,
-                    category,
-                    from,
-                    subject: h.subject || '',
-                    rootId: parent ? parent.threadId : mail.messageId,
-                    isReply: !!parent
-                  })
+                  // Spam is tagged, not announced - the point of the tag is that
+                  // nobody is paged for it.
+                  if (!spam) {
+                    await notifyAdmins({
+                      org,
+                      orgName: tenant.name,
+                      category,
+                      from,
+                      subject: h.subject || '',
+                      rootId: parent ? parent.threadId : mail.messageId,
+                      isReply: !!parent
+                    })
+                  }
                 } catch (e) {
                   console.error('put message failed', mail.messageId, e.message)
                 }
@@ -594,6 +614,7 @@ Resources:
                   to: h.to || envelope,
                   subject: h.subject,
                   messageId: mail.messageId,
+                  spam,
                   s3Key
                 })
               )

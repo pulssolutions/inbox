@@ -49,8 +49,7 @@
       :categories="categories.list"
       :attachment-busy="attachmentBusy"
       @back="closeMessage"
-      @archive="store.archiveMessageAction"
-      @unarchive="store.unarchiveMessageAction"
+      @move="store.moveMessageAction"
       @delete="onDelete"
       @reply="onReply"
       @add-note="onAddNote"
@@ -72,6 +71,7 @@ import { useCategoriesStore } from '@/stores/categories-store'
 import InboxSidebar from '@/components/InboxSidebar.vue'
 import MessageList from '@/components/MessageList.vue'
 import MessageReader from '@/components/MessageReader.vue'
+import { BOX_LABELS } from '@/helpers/format'
 
 const store = useInboxStore()
 const assignees = useAssigneesStore()
@@ -135,8 +135,8 @@ const mobilePane = computed(() => {
 })
 
 const paneTitle = computed(() => {
-  if (store.filters.box === 'archived') return 'Arkiverade'
-  return store.filters.category || 'Inkorg'
+  if (store.filters.box !== 'inbox') return BOX_LABELS[store.filters.box]
+  return store.filters.category || BOX_LABELS.inbox
 })
 
 const STATE_LABELS = { open: 'Öppna', pending: 'Pågår', done: 'Klara' }
@@ -148,8 +148,8 @@ const activeFilters = computed(() => {
   const { state, assignment, category, box } = store.filters
   return [
     // The category is the heading when it is the only scope; name it here too
-    // when the heading is showing the archive instead.
-    box === 'archived' && category ? category : null,
+    // when the heading is showing another box instead.
+    box !== 'inbox' && category ? category : null,
     STATE_LABELS[state],
     ASSIGNMENT_LABELS[assignment]
   ].filter(Boolean)

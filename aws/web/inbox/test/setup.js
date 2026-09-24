@@ -64,6 +64,20 @@ const seed = () => [
     s3Bucket: 'b',
     s3Key: 'inbound/m-arch',
     _body: { text: 'Tack!', html: null, attachments: [] }
+  },
+  {
+    messageId: 'm-spam',
+    category: 'kurser',
+    from: 'Winner <prize@spam.example>',
+    to: ['kurser@acme.example'],
+    subject: 'You have won',
+    receivedAt: '2026-05-02T08:00:00Z',
+    status: 'unread',
+    direction: 'inbound',
+    box: 'spam',
+    s3Bucket: 'b',
+    s3Key: 'inbound/m-spam',
+    _body: { text: 'Click here', html: null, attachments: [] }
   }
 ]
 

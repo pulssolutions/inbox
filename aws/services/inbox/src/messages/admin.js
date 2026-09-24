@@ -7,7 +7,9 @@ import { notifyDefaults } from '../settings/defaults.js'
 import { strings } from '../strings.js'
 
 const VALID_STATUS = new Set(['read', 'unread'])
-const VALID_BOX = new Set(['inbox', 'archived'])
+const VALID_BOX = new Set(['inbox', 'archived', 'spam'])
+// The audit verb each box move is logged as.
+const BOX_ACTION = { inbox: 'unarchive', archived: 'archive', spam: 'spam' }
 const VALID_STATE = new Set(['open', 'pending', 'done'])
 // A category is an email local-part (replies go out from `${category}@domain`),
 // so it has to be a valid one.
@@ -210,7 +212,7 @@ export const updateStatus = async ({ deps, org, pathParameters, body, claims }) 
     throw new ValidationError('STATUS_INVALID', 'status must be read or unread')
   }
   if (hasBox && !VALID_BOX.has(body.box)) {
-    throw new ValidationError('BOX_INVALID', 'box must be inbox or archived')
+    throw new ValidationError('BOX_INVALID', 'box must be inbox, archived or spam')
   }
   if (hasState && !VALID_STATE.has(body.state)) {
     throw new ValidationError('STATE_INVALID', 'state must be open, pending or done')
@@ -224,7 +226,7 @@ export const updateStatus = async ({ deps, org, pathParameters, body, claims }) 
   const meta = {}
   if (hasBox) {
     updated = await deps.db.setMessageBox({ org, messageId, box: body.box })
-    action = body.box === 'archived' ? 'archive' : 'unarchive'
+    action = BOX_ACTION[body.box]
     meta.box = { from: before.box, to: body.box }
   }
   if (hasStatus) {

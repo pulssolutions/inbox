@@ -112,25 +112,38 @@ describe('MessageReader', () => {
     expect(bare.find('[data-testid="note"]').text()).toContain('ghost@acme.example')
   })
 
-  it('emits archive / back', async () => {
+  it('emits archive / spam / back from the inbox', async () => {
     const w = mount(MessageReader, { props: { message: message() } })
     await w.find('[data-testid="archive"]').trigger('click')
-    expect(w.emitted('archive')[0]).toEqual(['a'])
+    expect(w.emitted('move')[0]).toEqual(['a', 'archived'])
+    await w.find('[data-testid="mark-spam"]').trigger('click')
+    expect(w.emitted('move')[1]).toEqual(['a', 'spam'])
+    expect(w.find('[data-testid="not-spam"]').exists()).toBe(false)
     await w.find('[data-testid="back"]').trigger('click')
     expect(w.emitted('back')).toBeTruthy()
   })
 
-  it('shows delete + unarchive (not archive) for archived messages and emits them', async () => {
+  it('shows delete + unarchive (not archive or spam) for archived messages', async () => {
     const w = mount(MessageReader, { props: { message: message({ box: 'archived' }) } })
     expect(w.find('[data-testid="archive"]').exists()).toBe(false)
+    expect(w.find('[data-testid="mark-spam"]').exists()).toBe(false)
     const un = w.find('[data-testid="unarchive"]')
     expect(un.exists()).toBe(true)
     await un.trigger('click')
-    expect(w.emitted('unarchive')[0]).toEqual(['a'])
+    expect(w.emitted('move')[0]).toEqual(['a', 'inbox'])
     const del = w.find('[data-testid="delete"]')
     expect(del.exists()).toBe(true)
     await del.trigger('click')
     expect(w.emitted('delete')[0]).toEqual(['a'])
+  })
+
+  it('offers only un-tagging for a spam message - never a permanent delete', async () => {
+    const w = mount(MessageReader, { props: { message: message({ box: 'spam' }) } })
+    expect(w.find('[data-testid="archive"]').exists()).toBe(false)
+    expect(w.find('[data-testid="mark-spam"]').exists()).toBe(false)
+    expect(w.find('[data-testid="delete"]').exists()).toBe(false)
+    await w.find('[data-testid="not-spam"]').trigger('click')
+    expect(w.emitted('move')[0]).toEqual(['a', 'inbox'])
   })
 
   it('renders sanitized HTML and strips scripts', () => {

@@ -48,6 +48,15 @@
         >
           Arkiverade
         </button>
+        <button
+          type="button"
+          class="side-link"
+          :class="{ active: box === 'spam' }"
+          data-testid="filter-spam"
+          @click="$emit('select-box', 'spam')"
+        >
+          Spam
+        </button>
       </div>
 
       <div class="side-section">

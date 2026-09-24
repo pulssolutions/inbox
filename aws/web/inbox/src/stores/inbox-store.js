@@ -148,38 +148,21 @@ export const useInboxStore = defineStore('inbox-store', {
       }
     },
 
-    async archiveMessageAction(id) {
+    // Archive, un-archive, mark spam and un-mark it are all one move: the row
+    // changes box. The box being looked at decides whether it leaves the list.
+    async moveMessageAction(id, box) {
       this.error.update = null
       // Optimistic: drop from the list immediately so counts update right away.
       const prevMessages = this.messages
       const prevCurrent = this.current
-      if (this.filters.box === 'inbox') {
+      if (this.filters.box !== box) {
         this.messages = this.messages.filter((m) => m.messageId !== id)
       }
       if (this.current?.messageId === id) this.current = null
       try {
-        await updateMessageAPI(id, { box: 'archived' })
+        await updateMessageAPI(id, { box })
       } catch (e) {
         // Roll back on failure.
-        this.messages = prevMessages
-        this.current = prevCurrent
-        this.error.update = e
-        throw e
-      }
-    },
-
-    async unarchiveMessageAction(id) {
-      this.error.update = null
-      // Optimistic: drop from the archived list immediately (it moves to inbox).
-      const prevMessages = this.messages
-      const prevCurrent = this.current
-      if (this.filters.box === 'archived') {
-        this.messages = this.messages.filter((m) => m.messageId !== id)
-      }
-      if (this.current?.messageId === id) this.current = null
-      try {
-        await updateMessageAPI(id, { box: 'inbox' })
-      } catch (e) {
         this.messages = prevMessages
         this.current = prevCurrent
         this.error.update = e

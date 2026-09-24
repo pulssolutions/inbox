@@ -42,7 +42,12 @@ the main privacy consideration.
 
 ## Mail
 
-- SES scans inbound for spam and viruses; the verdicts are in the stored MIME.
+- SES scans inbound for spam and viruses. The verdicts are in the stored MIME
+  and in the parse Lambda's event; parse files a hard `FAIL` on either one into
+  the `spam` box and sends no notification for it. `GRAY` and
+  `PROCESSING_FAILED` are treated as clean. SPF, DKIM and DMARC verdicts are
+  deliberately ignored: mail arrives forwarded through a Google group, which
+  fails all three for legitimate senders.
 - Outbound is DKIM-signed via the verified domain identity.
 - Until SES production access is granted, sending reaches only verified
   addresses — a sandbox, not a security control.

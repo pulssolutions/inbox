@@ -35,6 +35,9 @@ export const STATES = [
 export const stateLabel = (state) =>
   STATES.find((s) => s.value === state)?.label || 'Öppen'
 
+// The three boxes a message can live in, named for the UI.
+export const BOX_LABELS = { inbox: 'Inkorg', archived: 'Arkiverade', spam: 'Spam' }
+
 // Human labels for audit-log actions.
 const AUDIT_LABELS = {
   reply: 'Svar',
@@ -42,6 +45,7 @@ const AUDIT_LABELS = {
   state: 'Status',
   archive: 'Arkiverade',
   unarchive: 'Återöppnade',
+  spam: 'Skräppost',
   delete: 'Tog bort',
   note: 'Anteckning',
   transfer: 'Flyttade',
@@ -65,10 +69,12 @@ export const auditDetail = (entry) => {
       if (m.state) return `Status: ${stateLabel(m.state.from)} → ${stateLabel(m.state.to)}`
       if (m.status) return `Lässtatus: ${m.status.from} → ${m.status.to}`
       return ''
+    // Every box move carries meta.box, so one line covers archive, unarchive
+    // and spam - and whatever box comes next.
     case 'archive':
-      return 'Flyttad: Inkorg → Arkiverade'
     case 'unarchive':
-      return 'Flyttad: Arkiverade → Inkorg'
+    case 'spam':
+      return m.box ? `Flyttad: ${BOX_LABELS[m.box.from]} → ${BOX_LABELS[m.box.to]}` : ''
     case 'reply':
       return m.to ? `Svar till: ${m.to}` : ''
     case 'note':

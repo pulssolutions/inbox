@@ -175,6 +175,33 @@ describe('InboxView (integration with store + fetch shim)', () => {
     expect(w.findAll('.list-item')).toHaveLength(1)
   })
 
+  it('marking spam removes the message from the inbox list', async () => {
+    const { w } = await mountView()
+    await w.findAll('.list-item')[0].trigger('click')
+    await flushPromises()
+    await w.find('[data-testid="mark-spam"]').trigger('click')
+    await flushPromises()
+    expect(w.findAll('.list-item')).toHaveLength(1)
+  })
+
+  it('the Spam folder lists spam, and Inte spam puts it back in the inbox', async () => {
+    const { w } = await mountView()
+    await w.find('[data-testid="filter-spam"]').trigger('click')
+    await flushPromises()
+    expect(w.text()).toContain('You have won')
+    expect(w.findAll('.list-item')).toHaveLength(1)
+
+    await w.findAll('.list-item')[0].trigger('click')
+    await flushPromises()
+    await w.find('[data-testid="not-spam"]').trigger('click')
+    await flushPromises()
+    expect(w.findAll('.list-item')).toHaveLength(0)
+
+    await w.findAll('.side-link')[0].trigger('click') // back to Inkorg
+    await flushPromises()
+    expect(w.text()).toContain('You have won')
+  })
+
   it('archiving updates the sidebar counts immediately', async () => {
     const { w } = await mountView()
     // seed: m-new (kurser) + m-old (styrelse) in inbox → Inkorg total 2
