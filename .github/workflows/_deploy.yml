@@ -40,8 +40,8 @@ jobs:
     if: vars.DEPLOY_PROFILE != '' || vars.DEPLOY_PROFILE_JSON != ''
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
 
@@ -90,7 +90,7 @@ jobs:
           echo "Deploying ${{ inputs.stack }} for profile $PROFILE ($ENVIRONMENT)"
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-region: ${{ steps.cfg.outputs.region }}
           role-to-assume: ${{ steps.cfg.outputs.role }}
