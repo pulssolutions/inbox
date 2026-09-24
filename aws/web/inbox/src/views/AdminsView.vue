@@ -5,15 +5,6 @@
         <h1>Administratörer</h1>
         <p class="muted">Hantera vilka som har åtkomst och till vilka kategorier.</p>
       </div>
-      <button
-        v-if="tab === 'admins'"
-        type="button"
-        class="btn btn-primary btn-sm"
-        data-testid="add-admin"
-        @click="openNew"
-      >
-        + Ny admin
-      </button>
     </div>
 
     <div class="page-tabs">
@@ -75,6 +66,10 @@
         </tbody>
       </table>
       <p v-if="store.error.list" class="form-error">Kunde inte ladda administratörer.</p>
+
+      <button type="button" class="btn btn-primary btn-sm add-admin" data-testid="add-admin" @click="openNew">
+        + Ny admin
+      </button>
 
       <section class="notify-defaults">
         <h2>E-post som standard</h2>
@@ -270,7 +265,7 @@ const onDelete = async (a) => {
   min-height: 0;
 }
 .page-head {
-  padding: 22px 28px 14px;
+  padding: 22px 40px 14px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-2);
   display: flex;
@@ -279,7 +274,16 @@ const onDelete = async (a) => {
   gap: 16px;
 }
 .page-body {
-  padding: 22px 28px;
+  padding: 22px 40px;
+}
+.page-tabs {
+  padding: 0 40px;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0;
+}
+.add-admin {
+  margin-top: 14px;
 }
 .notify-defaults {
   margin-top: 28px;
