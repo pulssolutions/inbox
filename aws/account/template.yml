@@ -198,6 +198,21 @@ Resources:
                   - lambda:TagResource
                   - lambda:UntagResource
                 Resource: !Sub "arn:aws:lambda:*:${AWS::AccountId}:function:${ProjectPrefix}-*"
+              # The stream reader behind EnableWebhook. Not scoped by name: an
+              # event source mapping is identified by a generated UUID, so there
+              # is no prefix to match on - what it may attach to is constrained
+              # by the function grant above and by the stream grant the function
+              # itself holds. The whole set, not only Create: Delete is what a
+              # rollback needs, and a missing one fails the deploy AND its
+              # rollback.
+              - Effect: Allow
+                Action:
+                  - lambda:CreateEventSourceMapping
+                  - lambda:GetEventSourceMapping
+                  - lambda:UpdateEventSourceMapping
+                  - lambda:DeleteEventSourceMapping
+                  - lambda:ListEventSourceMappings
+                Resource: "*"
               - Effect: Allow
                 Action:
                   - events:DescribeRule
