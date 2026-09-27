@@ -201,7 +201,9 @@ export class Database {
 
   async listTenants() {
     const items = await this._query({ pkAttr: 'pk', pkValue: 'ALL:tenant' })
-    return items.map(stripInternal)
+    // The domain IS the sort key, and stripInternal drops it - so carry it as a
+    // field. A tenant row without its domain cannot say which mail it answers.
+    return items.map((item) => ({ domain: item.sk, ...stripInternal(item) }))
   }
 
   // ---- messages ---------------------------------------------------------

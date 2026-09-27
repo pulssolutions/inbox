@@ -5,6 +5,7 @@ import { recordAudit } from '../audit.js'
 import { notifyRecipients } from '../notify.js'
 import { notifyDefaults } from '../settings/defaults.js'
 import { strings } from '../strings.js'
+import { addressedDomain } from '../tenant.js'
 
 const VALID_STATUS = new Set(['read', 'unread'])
 const VALID_BOX = new Set(['inbox', 'archived', 'spam'])
@@ -517,19 +518,6 @@ const generateId = () => {
 // Which of a message's recipients is one of ours, as a bare lowercase domain.
 // `to` carries whatever the sender put there - display names, people cc-ed,
 // addresses at domains we have never owned - so only a configured domain is
-// ever returned. Without configured domains this yields nothing and the caller
-// keeps its previous behaviour.
-const addressedDomain = (to, mailDomains) => {
-  const ours = (mailDomains || []).map((d) => String(d).trim().toLowerCase()).filter(Boolean)
-  if (!ours.length) return null
-  for (const entry of Array.isArray(to) ? to : [to]) {
-    const address = String(entry || '').match(/<([^>]*)>/)?.[1] ?? String(entry || '')
-    const domain = address.split('@')[1]?.trim().toLowerCase()
-    if (domain && ours.includes(domain)) return domain
-  }
-  return null
-}
-
 // Who a reply must actually go to. A mailing list that rewrites From: - Google
 // Groups does it for every sender whose domain publishes DMARC - leaves the
 // list's own address in From: and the human's in Reply-To. Answering From: then

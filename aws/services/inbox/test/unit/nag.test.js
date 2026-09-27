@@ -45,6 +45,48 @@ describe('nag', () => {
     deps = makeDeps()
   })
 
+  it('brands a reminder as the domain the customer wrote to, not the first tenant row', async () => {
+    // Production bug: Puls answers Feelgood's friskkollen@ mail too, so org
+    // `puls` has several tenant rows. The sweep took whichever sorted first -
+    // feelgood.se - and put "Feelgood" on every Puls reminder.
+    await deps.db.putTenant({ domain: 'feelgood.se', org: ORG, name: 'Feelgood' })
+    await deps.db.putTenant({ domain: 'puls-solutions.com', org: ORG, name: 'Puls Solutions' })
+    await deps.db.putAdmin({
+      org: ORG,
+      admin: { email: 'boss@acme.example', name: 'Boss', role: 'superadmin', active: true }
+    })
+    await deps.db.putMessage({
+      org: ORG,
+      message: openMessage({ messageId: 'p1', to: ['Puls <hello@puls-solutions.com>'] })
+    })
+    await deps.db.putMessage({
+      org: ORG,
+      message: openMessage({ messageId: 'f1', to: ['friskkollen@feelgood.se'] })
+    })
+
+    await runNag(deps, NOW)
+    const byId = Object.fromEntries(
+      deps.ses.notifications.map((n) => [n.ctaUrl.split('/').pop(), n.orgName])
+    )
+    expect(byId).toEqual({ p1: 'Puls Solutions', f1: 'Feelgood' })
+  })
+
+  it('falls back to a tenant name when the message names none of our domains', async () => {
+    // A forward can leave a To: that is nobody we answer for. Better a name
+    // that is at least ours than an empty header.
+    await deps.db.putTenant({ domain: 'puls-solutions.com', org: ORG, name: 'Puls Solutions' })
+    await deps.db.putAdmin({
+      org: ORG,
+      admin: { email: 'boss@acme.example', name: 'Boss', role: 'superadmin', active: true }
+    })
+    await deps.db.putMessage({
+      org: ORG,
+      message: openMessage({ to: ['someone@elsewhere.example'] })
+    })
+    await runNag(deps, NOW)
+    expect(deps.ses.notifications[0].orgName).toBe('Puls Solutions')
+  })
+
   it('reminds the category subscribers about an issue left open for 25h', async () => {
     await seed(deps, openMessage())
     await deps.db.putAdmin({

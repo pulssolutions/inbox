@@ -1,6 +1,7 @@
 import { notifyRecipients } from './notify.js'
 import { notifyDefaults } from './settings/defaults.js'
 import { strings } from './strings.js'
+import { addressedDomain } from './tenant.js'
 
 const DAY_MS = 24 * 3600 * 1000
 const MAX_REMINDERS = 5
@@ -59,6 +60,16 @@ const remind = async (deps, { to, orgName, message, count, now }) => {
   })
 }
 
+// What to call ourselves in a reminder about this message. One org can answer
+// on several domains - Puls also takes Feelgood's friskkollen@ mail - and the
+// tenant row for the domain the customer wrote to is what names the sender.
+// Branding every reminder with whichever tenant row happened to sort first put
+// "Feelgood" on Puls issues in production.
+const brandFor = (message, byDomain, fallback) => {
+  const domain = addressedDomain(message.to, [...byDomain.keys()])
+  return (domain && byDomain.get(domain)) || fallback
+}
+
 // Daily sweep: remind the responsible admins about issues left open, once a day,
 // at most five times per silence. Runs for every tenant — there is no JWT here,
 // so the org list comes from the tenant rows.
@@ -68,11 +79,20 @@ const remind = async (deps, { to, orgName, message, count, now }) => {
 export const runNag = async (deps, now = new Date()) => {
   const tenants = await deps.db.listTenants()
   const orgs = new Map()
-  for (const t of tenants) if (t.org && !orgs.has(t.org)) orgs.set(t.org, t.name || t.org)
+  // Per org: every domain it answers on, and the fallback for a message whose
+  // To: names none of them - a forward, or a row predating the domain.
+  const domainsByOrg = new Map()
+  for (const t of tenants) {
+    if (!t.org) continue
+    if (!orgs.has(t.org)) orgs.set(t.org, t.name || t.org)
+    if (!domainsByOrg.has(t.org)) domainsByOrg.set(t.org, new Map())
+    if (t.domain) domainsByOrg.get(t.org).set(t.domain, t.name || t.org)
+  }
 
   let scanned = 0
   let notified = 0
-  for (const [org, orgName] of orgs) {
+  for (const [org, fallbackName] of orgs) {
+    const byDomain = domainsByOrg.get(org) || new Map()
     const messages = await deps.db.listMessagesByBox({ org, box: 'inbox' })
     const due = messages.filter((m) => isDue(m, now))
     scanned += messages.length
@@ -82,6 +102,7 @@ export const runNag = async (deps, now = new Date()) => {
     for (const message of due) {
       const count = remindersSent(message) + 1
       let sent = 0
+      const orgName = brandFor(message, byDomain, fallbackName)
       for (const to of recipientsFor(message, admins, orgDefaults)) {
         try {
           await remind(deps, { to, orgName, message, count, now })
