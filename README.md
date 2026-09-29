@@ -9,6 +9,10 @@ A shared email support inbox, deployable per company from one config file.
 Mail arrives at your domain, becomes a ticket, agents read and reply from a web
 app, and replies thread back onto the same ticket.
 
+<p align="center">
+  <img src="aws/web/inbox/public/manual/message.png" alt="A ticket thread with an internal note and a sent reply" width="800">
+</p>
+
 ## How it works
 
 ```
@@ -22,6 +26,21 @@ someone@anywhere → support@yourdomain
 The recipient's local part becomes the ticket's **category**, so adding a queue
 (`billing@`, `sales@`) is an email alias, not a deploy. The recipient's domain
 selects the **tenant**, so one deployment can serve several brands.
+
+## What agents see
+
+Folders and filters on the left, the ticket list in the middle, the open
+ticket on the right. Replies go out from the category's address; internal
+notes stay in the thread. There is a built-in Swedish user manual under
+`Hjälp` in the app header (`aws/web/inbox/manual.html`).
+
+<p align="center">
+  <img src="aws/web/inbox/public/manual/inbox.png" alt="The inbox: folders, filters and ticket list" width="800">
+</p>
+<p align="center">
+  <img src="aws/web/inbox/public/manual/mobile-list.png" alt="Ticket list on a phone" width="240">
+  <img src="aws/web/inbox/public/manual/mobile-message.png" alt="An open ticket on a phone" width="240">
+</p>
 
 ## One deployment = one AWS account
 

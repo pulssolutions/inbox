@@ -26,6 +26,12 @@
     "$comment": "Optional. Paths relative to the repo root, copied into the web build at deploy time. Omit both, as here, and the app uses its own neutral mark."
   },
 
+  "help": {
+    "$comment": "Optional. Wording in the built-in user manual (Hjälp in the app header): what to call the organisation in Swedish, and example shared addresses. Defaults shown.",
+    "orgNoun": "företaget",
+    "exampleAddresses": "support@, faktura@"
+  },
+
   "web": {
     "$comment": "Optional. Omit the whole block to be served on the CloudFront domain instead. The zone must be one this account can write to.",
     "domain": "inbox.example.com",
