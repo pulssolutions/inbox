@@ -24,8 +24,11 @@ Object.assign(process.env, {
   VITE_HELP_EXAMPLE_ADDRESSES: 'support@, faktura@'
 })
 
+// Fixtures and the browser clock share one fixed "now", so the shots come out
+// the same whenever they are regenerated.
+const NOW = new Date('2026-09-29T11:00:00')
 const daysAgo = (d, h = 9) => {
-  const t = new Date()
+  const t = new Date(NOW)
   t.setDate(t.getDate() - d)
   t.setHours(h, 15, 0, 0)
   return t.toISOString()
@@ -321,7 +324,7 @@ const session = {
   idToken: 'manual',
   accessToken: 'manual',
   refreshToken: null,
-  expiresAt: Date.now() + 3600e3,
+  expiresAt: NOW.getTime() + 3600e3,
   orgs: {
     acme: {
       name: 'Acme AB',
@@ -361,6 +364,7 @@ const main = async () => {
         json: api(route.request().method(), route.request().url())
       })
     )
+    await ctx.clock.setFixedTime(NOW)
     if (signedIn) {
       await ctx.addInitScript((s) => {
         localStorage.setItem('inbox:admin', JSON.stringify(s))

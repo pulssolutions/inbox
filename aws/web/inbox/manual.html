@@ -17,6 +17,7 @@
         --bg-2: #f2f0ea;
         --border: #e6e5df;
         --accent: #c08b1c;
+        --link: #8a6210;
         color-scheme: light dark;
       }
       @media (prefers-color-scheme: dark) {
@@ -26,6 +27,7 @@
           --bg: #15161a;
           --bg-2: #1e2025;
           --border: #26282f;
+          --link: #e0a832;
         }
       }
       * {
@@ -128,7 +130,7 @@
         margin: 12px 0;
       }
       a {
-        color: var(--accent);
+        color: var(--link);
       }
       @media (max-width: 600px) {
         nav.toc ol {
@@ -177,7 +179,7 @@
         <ol>
           <li>
             <b>Du får ett mejl</b> när något kommer in i en kategori du ansvarar
-            för.
+            för, om e-postnotiser är på för dig (se <a href="#admin">Admin</a>).
           </li>
           <li>
             <b>Klicka på <i>Öppna ärendet</i></b> i mejlet. Länken går direkt
@@ -350,8 +352,8 @@
         <ul>
           <li>
             <b>Tilldelad</b> – välj vem som äger ärendet. Det syns som initialer
-            i listan och under <i>Mina ärenden</i>. Den som tilldelas får ett
-            mejl.
+            i listan och under <i>Mina ärenden</i>. Tilldelar du någon annan får
+            hen ett mejl.
           </li>
           <li>
             <b>Kategori</b> – flytta ärendet till en annan kategori, till
