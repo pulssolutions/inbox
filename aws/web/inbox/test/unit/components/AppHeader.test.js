@@ -37,6 +37,7 @@ describe('AppHeader', () => {
     const w = mount(AppHeader, { global: { plugins: [router] } })
     expect(w.text()).toContain('Acme')
     expect(w.text()).toContain('Inkorg')
+    expect(w.get('[data-testid="help-link"]').attributes('href')).toBe('/manual.html')
   })
 
   it('shows the Admins nav only for users with admins.read', async () => {

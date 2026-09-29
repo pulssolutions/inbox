@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint src/ test/"
+    "lint": "eslint src/ test/",
+    "manual:shots": "node scripts/manual-shots.mjs"
   },
   "dependencies": {
     "bootstrap": "5.3.3",
@@ -24,6 +25,7 @@
     "eslint": "8.57.1",
     "eslint-plugin-vue": "9.31.0",
     "jsdom": "25.0.1",
+    "playwright": "1.54.2",
     "prettier": "3.3.3",
     "sass": "1.80.6",
     "vite": "5.4.10",

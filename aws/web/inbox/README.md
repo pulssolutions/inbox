@@ -10,7 +10,7 @@ the deployment profile and the inbox stack's outputs at build time:
 
 ```
 VITE_API_BASE, VITE_COGNITO_DOMAIN, VITE_USER_POOL_ID,
-VITE_USER_POOL_CLIENT_ID, VITE_AWS_REGION, VITE_BRAND_*
+VITE_USER_POOL_CLIENT_ID, VITE_AWS_REGION, VITE_BRAND_*, VITE_HELP_*
 ```
 
 `src/config.js` reads only those and logs loudly if a required one is missing —
@@ -45,6 +45,26 @@ is the authority.
 
 Swedish, hardcoded. Only the emails the service sends are localized; see
 `docs/email.md`.
+
+## User manual
+
+`manual.html` is a static Swedish manual built as a second Vite page and served
+next to the app at `/manual.html` (the `Hjälp` link in the header). Its
+`%VITE_BRAND_SHORT%` and `%VITE_HELP_*%` tokens are replaced at build time from
+the deployment profile's `brand` and `help` blocks, so the same page can say
+"företaget" or "klubben". Without an `.env.local` the tokens render literally.
+
+Screenshots live in `public/manual/` and are committed. Regenerate them after
+UI changes:
+
+```
+npx playwright install chromium   # once
+yarn manual:shots
+```
+
+The script starts Vite from source with a fictional Acme brand, mocks the API
+with fixture data and a seeded admin session, and screenshots each view with
+Playwright. Nothing in it is deployment-specific.
 
 ## Tests
 

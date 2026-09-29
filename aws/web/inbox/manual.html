@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="sv">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Manual · %VITE_BRAND_SHORT% Inbox</title>
+    <meta
+      name="description"
+      content="Kort manual för %VITE_HELP_ORG_NOUN%s gemensamma inkorg."
+    />
+    <meta name="theme-color" content="#c08b1c" />
+    <style>
+      :root {
+        --fg: #1f2023;
+        --fg-2: #5c5e66;
+        --bg: #fbfaf7;
+        --bg-2: #f2f0ea;
+        --border: #e6e5df;
+        --accent: #c08b1c;
+        --link: #8a6210;
+        color-scheme: light dark;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --fg: #ecebe6;
+          --fg-2: #a3a39c;
+          --bg: #15161a;
+          --bg-2: #1e2025;
+          --border: #26282f;
+          --link: #e0a832;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          17px/1.55 system-ui,
+          -apple-system,
+          'Segoe UI',
+          Roboto,
+          sans-serif;
+      }
+      main {
+        max-width: 860px;
+        margin: 0 auto;
+        padding: 32px 16px 80px;
+      }
+      h1 {
+        font-size: 2rem;
+        line-height: 1.15;
+        margin: 0 0 4px;
+      }
+      .lead {
+        color: var(--fg-2);
+        margin: 0 0 28px;
+      }
+      nav.toc {
+        background: var(--bg-2);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 14px 18px;
+        margin-bottom: 40px;
+      }
+      nav.toc ol {
+        margin: 0;
+        padding-left: 22px;
+        columns: 2;
+        column-gap: 24px;
+      }
+      nav.toc li {
+        break-inside: avoid;
+      }
+      section {
+        margin-bottom: 48px;
+      }
+      section ol {
+        padding-left: 22px;
+      }
+      section ol li {
+        margin-bottom: 8px;
+      }
+      h2 {
+        font-size: 1.4rem;
+        margin: 0 0 8px;
+        padding-top: 8px;
+        border-top: 2px solid var(--accent);
+      }
+      p,
+      ul {
+        margin: 0 0 12px;
+      }
+      ul {
+        padding-left: 22px;
+      }
+      li {
+        margin-bottom: 4px;
+      }
+      b {
+        font-weight: 600;
+      }
+      figure {
+        margin: 16px 0 0;
+      }
+      figure img {
+        display: block;
+        width: 100%;
+        height: auto;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #fff;
+      }
+      figure.phone img {
+        width: 300px;
+        max-width: 100%;
+      }
+      figcaption {
+        font-size: 0.9rem;
+        color: var(--fg-2);
+        margin-top: 6px;
+      }
+      .tip {
+        border-left: 3px solid var(--accent);
+        background: var(--bg-2);
+        padding: 8px 14px;
+        border-radius: 0 8px 8px 0;
+        margin: 12px 0;
+      }
+      a {
+        color: var(--link);
+      }
+      @media (max-width: 600px) {
+        nav.toc ol {
+          columns: 1;
+        }
+      }
+      @media print {
+        nav.toc,
+        .tip {
+          border-color: #999;
+        }
+        section {
+          break-inside: avoid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>%VITE_BRAND_SHORT% Inbox – kort manual</h1>
+      <p class="lead">
+        En gemensam inkorg för %VITE_HELP_ORG_NOUN%. All mejl till de delade
+        adresserna (till exempel <i>%VITE_HELP_EXAMPLE_ADDRESSES%</i>) hamnar
+        här som ärenden som flera administratörer kan läsa, svara på och följa
+        upp tillsammans.
+      </p>
+
+      <nav class="toc" aria-label="Innehåll">
+        <ol>
+          <li><a href="#lathund">Lathund: nytt ärende</a></li>
+          <li><a href="#logga-in">Logga in</a></li>
+          <li><a href="#inkorgen">Inkorgen</a></li>
+          <li><a href="#lasa">Läsa ett ärende</a></li>
+          <li><a href="#svara">Svara via mejl</a></li>
+          <li><a href="#anteckningar">Interna anteckningar</a></li>
+          <li><a href="#hantera">Tilldela, status, kategori, arkivera</a></li>
+          <li><a href="#spam">Spam</a></li>
+          <li><a href="#admin">Admin: administratörer och inställningar</a></li>
+          <li><a href="#logg">Logg</a></li>
+          <li><a href="#mobil">I mobilen</a></li>
+        </ol>
+      </nav>
+
+      <section id="lathund">
+        <h2>Lathund: när du får ett nytt ärende</h2>
+        <ol>
+          <li>
+            <b>Du får ett mejl</b> när något kommer in i en kategori du ansvarar
+            för, om e-postnotiser är på för dig (se <a href="#admin">Admin</a>).
+          </li>
+          <li>
+            <b>Klicka på <i>Öppna ärendet</i></b> i mejlet. Länken går direkt
+            till ärendet i inkorgen.
+          </li>
+          <li>
+            <b>Logga in om du blir ombedd.</b> Skriv din e-postadress, klicka
+            <i>Skicka inloggningskod</i> och ange koden du får i mejlet. Finns
+            <i>Fortsätt med Google</i> i din installation kan du använda den i
+            stället. Efter inloggningen hamnar du på ärendet.
+          </li>
+          <li>
+            <b>Läs ärendet.</b> Titta i tråden om någon kollega redan svarat
+            (märkt <i>Skickat svar</i>) eller lämnat en intern anteckning. Då
+            behöver du oftast inte göra något.
+          </li>
+          <li>
+            <b>Svara eller anteckna.</b> Svara avsändaren under
+            <i>Svar via mejl</i>, eller lämna en <i>Intern anteckning</i> till
+            kollegorna. Knappen <i>Skicka och stäng</i> skickar svaret och
+            markerar ärendet som <i>Klar</i>. Väntar du på något, välj
+            <i>Skicka och lämna öppen</i> via pilen bredvid knappen.
+          </li>
+        </ol>
+      </section>
+
+      <section id="logga-in">
+        <h2>1. Logga in</h2>
+        <p>
+          Du loggar in med en <b>engångskod via e-post</b>: skriv din
+          e-postadress, klicka <i>Skicka inloggningskod</i> och ange koden du
+          får. Har installationen Google-inloggning påslagen finns också knappen
+          <b>Fortsätt med Google</b>. Sessionen håller i 30 dagar, så du behöver
+          sällan logga in igen.
+        </p>
+        <p>
+          Bara personer som lagts till som administratörer kommer in. Får du
+          meddelandet att kontot saknar behörighet, be en superadmin lägga till
+          dig (se <a href="#admin">Admin</a>).
+        </p>
+        <figure>
+          <img
+            src="manual/login.png"
+            alt="Inloggningssidan med Google-knapp och fält för e-postkod"
+          />
+          <figcaption>Inloggning med engångskod eller Google.</figcaption>
+        </figure>
+      </section>
+
+      <section id="inkorgen">
+        <h2>2. Inkorgen</h2>
+        <p>
+          Vyn har tre delar: mappar och filter till vänster, ärendelistan i
+          mitten och det öppna ärendet till höger.
+        </p>
+        <ul>
+          <li>
+            <b>Inkorg</b> – alla pågående ärenden. <b>Arkiverade</b> – avslutade
+            ärenden som flyttats undan. <b>Spam</b> – mejl som sorterats bort
+            som skräppost.
+          </li>
+          <li>
+            <b>Mina ärenden</b> – ärenden som är tilldelade dig.
+            <b>Ej tilldelade</b> – ärenden som ingen tagit ännu.
+          </li>
+          <li>
+            <b>Status</b> – filtrera på <i>Öppen</i>, <i>Pågår</i> eller
+            <i>Klar</i>.
+          </li>
+          <li>
+            <b>Kategorier</b> – en per mottagaradress
+            (%VITE_HELP_EXAMPLE_ADDRESSES% …). Du ser bara de kategorier du har
+            behörighet till.
+          </li>
+          <li><b>Sök ärenden</b> i toppen söker på ämne och avsändare.</li>
+        </ul>
+        <p>
+          Olästa ärenden visas i fetstil med en prick. Varje rad visar
+          avsändare, ämne, hur länge sedan något hände, vem som är tilldelad
+          (initialer), status och kategori.
+        </p>
+        <figure>
+          <img
+            src="manual/inbox.png"
+            alt="Inkorgen med mappar, filter och ärendelista"
+          />
+          <figcaption>
+            Inkorgen. Listan sorteras på senaste aktivitet.
+          </figcaption>
+        </figure>
+      </section>
+
+      <section id="lasa">
+        <h2>3. Läsa ett ärende</h2>
+        <p>
+          Klicka på en rad för att öppna ärendet. Hela tråden visas i
+          tidsordning: inkommande mejl, svar som skickats från inkorgen (märkta
+          <i>Skickat svar</i> och vem som skrev det) och interna anteckningar.
+          Bilagor visas under mejlet och laddas ner när du klickar på dem.
+        </p>
+        <p>
+          Ärendet markeras automatiskt som läst när du öppnar det. Andra
+          administratörer ser samma tråd.
+        </p>
+        <figure>
+          <img
+            src="manual/message.png"
+            alt="Ett öppet ärende med inkommande mejl, intern anteckning och skickat svar"
+          />
+          <figcaption>
+            Tråden visar mejl, svar och anteckningar i ett flöde.
+          </figcaption>
+        </figure>
+      </section>
+
+      <section id="svara">
+        <h2>4. Svara via mejl</h2>
+        <p>
+          Skriv svaret i rutan längst ner under fliken <b>Svar via mejl</b>.
+          Svaret skickas från kategorins adress med ditt namn som avsändare, och
+          mottagarens svar hamnar i samma tråd.
+        </p>
+        <ul>
+          <li>
+            <b>Skicka och stäng</b> – skickar svaret och sätter status
+            <i>Klar</i>. Vanligast.
+          </li>
+          <li>
+            <b>Skicka och lämna öppen</b> (pilen bredvid knappen) – skickar men
+            behåller ärendet öppet, till exempel när du väntar på ett svar
+            tillbaka.
+          </li>
+        </ul>
+        <p>
+          När du svarar blir du automatiskt tilldelad ärendet om ingen annan
+          redan är det. Övriga administratörer i kategorin kan få en notis om
+          svaret (se <a href="#admin">Admin</a>).
+        </p>
+        <figure>
+          <img
+            src="manual/reply.png"
+            alt="Svarsrutan med menyn Skicka och stäng / Skicka och lämna öppen"
+          />
+          <figcaption>
+            Välj om ärendet ska stängas när svaret skickas.
+          </figcaption>
+        </figure>
+      </section>
+
+      <section id="anteckningar">
+        <h2>5. Interna anteckningar</h2>
+        <p>
+          Fliken <b>Intern anteckning</b> sparar en notering i tråden som bara
+          administratörer ser. Avsändaren får inget mejl. Använd den för att
+          lämna över ett ärende till en kollega, notera vad som sagts per
+          telefon eller vad som väntar på beslut.
+        </p>
+        <figure>
+          <img
+            src="manual/note.png"
+            alt="Fliken Intern anteckning med en påbörjad notering"
+          />
+          <figcaption>Anteckningar syns bara internt.</figcaption>
+        </figure>
+      </section>
+
+      <section id="hantera">
+        <h2>6. Tilldela, status, kategori, arkivera</h2>
+        <p>Raden ovanför tråden styr ärendet:</p>
+        <ul>
+          <li>
+            <b>Tilldelad</b> – välj vem som äger ärendet. Det syns som initialer
+            i listan och under <i>Mina ärenden</i>. Tilldelar du någon annan får
+            hen ett mejl.
+          </li>
+          <li>
+            <b>Kategori</b> – flytta ärendet till en annan kategori, till
+            exempel ett fakturamejl som hamnat hos supporten. Ärendet försvinner
+            då från din lista om du saknar behörighet till den nya kategorin.
+          </li>
+          <li>
+            <b>Status</b> – <i>Öppen</i> (nytt), <i>Pågår</i> (någon jobbar på
+            det, väntar på svar) eller <i>Klar</i>.
+          </li>
+          <li>
+            <b>Arkivera</b> – flyttar ärendet till <i>Arkiverade</i>. Det kan
+            återställas därifrån (<i>Återställ</i>) eller tas bort permanent.
+          </li>
+          <li>
+            <b>Spam</b> – flyttar ärendet till mappen <i>Spam</i> utan att någon
+            får en notis.
+          </li>
+        </ul>
+        <div class="tip">
+          Ärenden som lämnas öppna påminns om i ett mejl (<i>Påminnelse: …</i>)
+          till den som är tilldelad, annars till kategorins administratörer.
+          Sätt <i>Klar</i> eller arkivera när ärendet är färdigt.
+        </div>
+        <figure>
+          <img
+            src="manual/actions.png"
+            alt="Ärendets verktygsrad med tilldelning, kategori, status, arkivera och spam"
+          />
+          <figcaption>Verktygsraden ovanför tråden.</figcaption>
+        </figure>
+      </section>
+
+      <section id="spam">
+        <h2>7. Spam</h2>
+        <p>
+          Mejl som sorterats som skräppost hamnar i mappen <b>Spam</b> i stället
+          för i inkorgen och skickar ingen notis. Öppna ärendet och klicka
+          <b>Inte spam</b> för att flytta det tillbaka till inkorgen, så
+          hanteras det som vanligt.
+        </p>
+        <figure>
+          <img
+            src="manual/spam.png"
+            alt="Spam-mappen med ett öppet ärende och knappen Inte spam"
+          />
+          <figcaption>
+            Ett felsorterat mejl räddas med <i>Inte spam</i>.
+          </figcaption>
+        </figure>
+      </section>
+
+      <section id="admin">
+        <h2>8. Admin: administratörer och inställningar</h2>
+        <p>
+          Sidan <b>Admin</b> syns bara för superadmins. Fliken <b>Admins</b>
+          styr vem som har tillgång till inkorgen:
+        </p>
+        <ul>
+          <li>
+            <b>Admin</b> ser och hanterar ärenden i de kategorier som anges
+            (till exempel <i>support, faktura</i>).
+          </li>
+          <li>
+            <b>Superadmin</b> ser alla kategorier, hanterar administratörer och
+            inställningar och ser loggen.
+          </li>
+          <li>
+            <b>E-post</b> per person styr om hen får mejl vid nytt ärende och
+            vid svar eller aktivitet i ett ärende. <i>Följ standard</i> tar
+            värdet från fliken Settings.
+          </li>
+        </ul>
+        <p>
+          Behörigheten gäller direkt vid nästa inloggning. Behörighet
+          kontrolleras på servern, så en admin utan tillgång till en kategori
+          kan inte läsa dess ärenden på något sätt.
+        </p>
+        <figure>
+          <img
+            src="manual/admins.png"
+            alt="Listan över administratörer med roll, kategorier och status"
+          />
+          <figcaption>Administratörer, roller och kategorier.</figcaption>
+        </figure>
+        <p>Fliken <b>Settings</b> gäller hela inkorgen:</p>
+        <ul>
+          <li>
+            <b>E-post som standard</b> – vad administratörer som inte valt något
+            eget får mejl om.
+          </li>
+          <li>
+            <b>Webhook</b> – skickar varje nytt ärende (och valfritt varje svar)
+            vidare till en adress, till exempel ett chattverktyg eller ett
+            ärendesystem. Spam skickas aldrig. <i>Skicka test</i> skickar ett
+            provmeddelande så att du ser att adressen tar emot. Visas bara om
+            webhooks är påslagna i installationen.
+          </li>
+        </ul>
+        <figure>
+          <img
+            src="manual/settings.png"
+            alt="Fliken Settings med e-poststandard och webhook"
+          />
+          <figcaption>Inställningar för hela inkorgen.</figcaption>
+        </figure>
+      </section>
+
+      <section id="logg">
+        <h2>9. Logg</h2>
+        <p>
+          <b>Logg</b> visar vem som gjort vad: svar, anteckningar, statusbyten,
+          flyttar, arkiveringar och ändringar av administratörer. Klicka på en
+          rad för detaljer. Bra när ni undrar om någon redan svarat.
+        </p>
+        <figure>
+          <img
+            src="manual/audit.png"
+            alt="Loggen med tid, vem, vad och vilket ärende"
+          />
+          <figcaption>Loggen är bara synlig för superadmins.</figcaption>
+        </figure>
+      </section>
+
+      <section id="mobil">
+        <h2>10. I mobilen</h2>
+        <p>
+          Inkorgen fungerar i mobilen också. Listan visas först, ärendet öppnas
+          i helskärm och knappen <i>Tillbaka</i> tar dig till listan. Mappar och
+          filter nås via knappen <i>☰ Mappar</i> i listans topp. Lägg gärna
+          sidan på hemskärmen för snabb åtkomst.
+        </p>
+        <figure class="phone">
+          <img src="manual/mobile-list.png" alt="Ärendelistan i mobilvy" />
+        </figure>
+        <figure class="phone">
+          <img
+            src="manual/mobile-message.png"
+            alt="Ett öppet ärende i mobilvy"
+          />
+          <figcaption>Lista och ärende i mobilen.</figcaption>
+        </figure>
+      </section>
+    </main>
+  </body>
+</html>

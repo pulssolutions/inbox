@@ -38,6 +38,10 @@ node scripts/profile.mjs <profile> <stack> [env]   # see what a stack receives
 node scripts/profile.mjs <profile> --stacks
 ```
 
+The optional `help` block (`orgNoun`, `exampleAddresses`) only reaches the web
+app's built-in user manual, as `VITE_HELP_*` at build time - it is wording, not
+infrastructure. See `aws/web/inbox/README.md`.
+
 ## CI
 
 One workflow per stack, each with its own path filter:

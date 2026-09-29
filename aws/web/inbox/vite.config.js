@@ -25,6 +25,10 @@ export default defineConfig({
   },
   build: {
     outDir: 'site',
-    emptyOutDir: true
+    emptyOutDir: true,
+    // manual.html is a second page, so its %VITE_*% tokens are replaced too.
+    rollupOptions: {
+      input: { main: 'index.html', manual: 'manual.html' }
+    }
   }
 })

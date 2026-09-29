@@ -35,6 +35,9 @@
       />
     </div>
     <span class="topbar-spacer" />
+    <a :href="manualUrl" class="icon-btn" target="_blank" rel="noopener" data-testid="help-link">
+      Hjälp
+    </a>
     <ThemeToggle />
     <div class="topbar-user">
       <span class="av av-sm" :title="user?.email || ''">{{ initials }}</span>
@@ -93,6 +96,7 @@ const onSearch = () => {
   clearTimeout(searchTimer)
   searchTimer = setTimeout(() => inbox.searchAction(q.value), 250)
 }
+const manualUrl = `${import.meta.env.BASE_URL}manual.html`
 const initials = computed(
   () => session.user?.initials || (session.user?.email || '?').slice(0, 1).toUpperCase()
 )
@@ -104,6 +108,9 @@ const logout = () => {
 </script>
 
 <style scoped>
+a.icon-btn {
+  text-decoration: none;
+}
 .brand {
   text-decoration: none;
   color: inherit;
