@@ -90,7 +90,8 @@ const WEBHOOK_DEFAULTS = {
   envelope: '{"content":"{{content}}"}',
   token: '',
   onNewIssue: true,
-  onReply: true
+  onReply: true,
+  onAgentReply: false
 }
 
 const state = {

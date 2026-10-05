@@ -269,7 +269,8 @@ const NOTIFY_EVENTS = [
 // What the webhook fires on. Spam never does, whatever is set here.
 const WEBHOOK_EVENTS = [
   { key: 'onNewIssue', label: 'Nytt ärende' },
-  { key: 'onReply', label: 'Svar i ärende' }
+  { key: 'onReply', label: 'Svar i ärende' },
+  { key: 'onAgentReply', label: 'Vårt svar till avsändaren' }
 ]
 
 // Vue's parser reads a literal `{{` inside an interpolation as the closing
@@ -284,7 +285,7 @@ const PLACEHOLDER_HINT = [
 // The webhook saves on a button, so the form is a local copy rather than the
 // store's - a half-typed template should not be written on every keystroke.
 const webhookForm = reactive({
-  url: '', template: '', envelope: '', token: '', onNewIssue: true, onReply: true
+  url: '', template: '', envelope: '', token: '', onNewIssue: true, onReply: true, onAgentReply: false
 })
 
 const toChoice = (v) => (v === true ? 'on' : v === false ? 'off' : 'inherit')

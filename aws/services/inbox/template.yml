@@ -605,14 +605,14 @@ Resources:
       # shared its batch and already succeeded.
       FunctionResponseTypes:
         - ReportBatchItemFailures
-      # New inbound, non-spam messages only. Notes, audit rows and settings
+      # New non-spam messages only, either direction. Notes, audit rows and settings
       # carry no `direction`, so this excludes them too, and the function is
       # never woken for them. The consumer repeats the rule - a filter is
       # configuration, and what may reach a chat room is not.
       FilterCriteria:
         Filters:
           - Pattern: >-
-              {"eventName":["INSERT"],"dynamodb":{"NewImage":{"direction":{"S":["inbound"]},"box":{"S":[{"anything-but":["spam"]}]}}}}
+              {"eventName":["INSERT"],"dynamodb":{"NewImage":{"direction":{"S":["inbound","outbound"]},"box":{"S":[{"anything-but":["spam"]}]}}}}
 
   InboxLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration

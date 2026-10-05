@@ -17,21 +17,26 @@ export const SAMPLE_MESSAGE = {
 // The reply address, not the From: header. A mailing list that rewrites From:
 // - Google Groups does it for every sender whose domain publishes DMARC - puts
 // the list in From: and the human in Reply-To, so naming From: in the chat room
-// would credit every customer mail to the list. Same rule as replies use.
-const senderOf = (parsed, message) => parsed?.replyTo || message.from || ''
+// would credit every customer mail to the list. Same rule as replies use. An
+// agent reply is From: the category address, so it names the agent instead.
+const senderOf = (parsed, message) =>
+  parsed?.replyTo || message.sentBy || message.from || ''
 
 // Whether this message is one the org asked to be told about. A reply is any
-// message that is not its own thread root.
-const wanted = (webhook, message) =>
-  (message.threadId || message.messageId) === message.messageId
+// inbound message that is not its own thread root.
+const wanted = (webhook, message) => {
+  if (message.direction === 'outbound') return webhook.onAgentReply
+  return (message.threadId || message.messageId) === message.messageId
     ? webhook.onNewIssue
     : webhook.onReply
+}
 
 // Reads the body out of the stored MIME. Read-time parsing is what strips the
 // Google Groups unsubscribe footer, so the chat room shows what the customer
 // wrote rather than what the list appended.
 const bodyOf = async (deps, message) => {
-  if (message.body !== undefined) return { body: message.body, parsed: null }
+  const inline = message.body ?? message.bodyText
+  if (inline !== undefined) return { body: inline, parsed: null }
   if (!message.s3Key) return { body: '', parsed: null }
   try {
     const parsed = await deps.mailStore.fetchAndParse({

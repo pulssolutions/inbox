@@ -16,7 +16,8 @@ export const useSettingsStore = defineStore('settings-store', {
       envelope: '',
       token: '',
       onNewIssue: true,
-      onReply: true
+      onReply: true,
+      onAgentReply: false
     },
     loading: { load: false, save: false, webhook: false, test: false },
     error: { load: null, save: null, webhook: null },

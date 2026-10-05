@@ -16,14 +16,15 @@ const stringAttributes = (image) => {
 // The org a row belongs to is its partition key's prefix: `${org}:message`.
 const orgOf = (pk) => String(pk || '').split(':')[0]
 
-// The event source mapping already filters to INSERT of an inbound, non-spam
+// The event source mapping already filters to INSERT of a non-spam message
 // row. These guards repeat it because a filter is configuration and this is the
-// rule: an outbound reply or a spam tag must never reach a chat room, whatever
-// the mapping says today.
+// rule: a spam tag must never reach a chat room, whatever the mapping says today.
 const announceable = (row) =>
-  row?.direction === 'inbound' && row.box !== 'spam' && row.pk?.endsWith(':message')
+  ['inbound', 'outbound'].includes(row?.direction) &&
+  row.box !== 'spam' &&
+  row.pk?.endsWith(':message')
 
-// Consumes DynamoDB stream records and pushes each new inbound message to the
+// Consumes DynamoDB stream records and pushes each new message to the
 // org's webhook. Returns the partial-batch response, so one unreachable
 // receiver does not re-post the records that already succeeded.
 export const handleStream = async (deps, event) => {

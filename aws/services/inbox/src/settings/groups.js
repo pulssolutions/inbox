@@ -26,7 +26,8 @@ export const WEBHOOK_DEFAULTS = {
   envelope: DEFAULT_ENVELOPE,
   token: '',
   onNewIssue: true,
-  onReply: true
+  onReply: true,
+  onAgentReply: false
 }
 
 const asObject = (value, code, label) => {

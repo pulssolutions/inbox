@@ -112,14 +112,32 @@ describe('handleStream', () => {
     expect(webhook.posts).toHaveLength(0)
   })
 
-  it('never announces spam or our own outbound replies', async () => {
-    await handleStream(deps, {
-      Records: [
-        insert(row({ box: 'spam' }), 'e1'),
-        insert(row({ direction: 'outbound' }), 'e2')
-      ]
-    })
+  it('never announces spam', async () => {
+    await handleStream(deps, { Records: [insert(row({ box: 'spam' }))] })
     expect(webhook.posts).toHaveLength(0)
+  })
+
+  it('posts an agent reply, naming the agent, only when agent replies are subscribed', async () => {
+    const sent = row({
+      messageId: 'r1',
+      sk: 'r1',
+      threadId: 'm1',
+      direction: 'outbound',
+      from: 'Acme <hello@acme.example>',
+      sentBy: 'john@acme.example',
+      bodyText: 'Nej nej, det funkar nog',
+      s3Key: undefined
+    })
+    delete sent.s3Key
+    await handleStream(deps, { Records: [insert(sent)] })
+    expect(webhook.posts).toHaveLength(0)
+
+    await saveSettings({ deps, org: ORG, claims, body: { webhook: { onAgentReply: true } } })
+    await handleStream(deps, { Records: [insert(sent)] })
+    const { content } = JSON.parse(webhook.posts[0].body)
+    expect(content).toContain('Nej nej, det funkar nog')
+    expect(content).toContain('john@acme.example')
+    expect(content).toContain('https://inbox.example/#/m/m1')
   })
 
   it('ignores rows that are not messages, and non-INSERT events', async () => {
