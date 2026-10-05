@@ -49,11 +49,15 @@ const stripBigDataUris = (html) => {
 // into every reply. Stripped on read, never on receipt: the raw MIME in S3
 // stays the record of what actually arrived.
 //
-// Anchored to the end of the body on purpose. The same sentence inside a
-// quoted older message is content, not chrome, and must survive.
+// Google appends it to every text part, and a client that splits the body
+// around an attachment (Apple Mail does) leaves one mid-body - so the text
+// pattern matches any line that is exactly the footer. A quoted older message
+// prefixes the line with "> ", which keeps it: there it is content, not chrome.
+// The html pattern stays anchored to the end: quoted html has no "> " prefix
+// to tell it apart from the footer.
 const FOOTER =
   'To unsubscribe from this group and stop receiving emails from it, send an email to'
-const FOOTER_TEXT = new RegExp(`\\s*${FOOTER} \\S+@\\S+\\.\\s*$`)
+const FOOTER_TEXT = new RegExp(`\\s*^${FOOTER} \\S+@\\S+\\.[ \\t]*$`, 'gm')
 const FOOTER_HTML = new RegExp(
   `(?:<p>\\s*</p>)?\\s*${FOOTER} <a[^>]*>[^<]*</a>\\.\\s*(?:<br\\s*/?>)?\\s*$`,
   'i'
@@ -70,7 +74,7 @@ const normalize = (mail) => ({
   to: mail.to?.text ?? null,
   subject: mail.subject ?? null,
   date: mail.date ? mail.date.toISOString() : null,
-  text: stripGroupFooter(mail.text ?? '', FOOTER_TEXT),
+  text: stripGroupFooter(mail.text ?? '', FOOTER_TEXT).trimEnd(),
   html: stripBigDataUris(stripGroupFooter(mail.html, FOOTER_HTML)) || null,
   attachments: (mail.attachments || []).map((a) => ({
     filename: a.filename ?? null,

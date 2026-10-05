@@ -265,6 +265,39 @@ const QUOTING_THE_FOOTER = [
   ''
 ].join('\r\n')
 
+// Apple Mail with an attachment splits the body into text parts around it, and
+// Google Groups appends its footer to every text part - so one lands mid-body.
+const SPLIT_BY_ATTACHMENT = [
+  "From: \"'Christian' via Info\" <info@puls-solutions.se>",
+  'To: hello@puls-solutions.com',
+  'Subject: Help',
+  'Content-Type: multipart/mixed; boundary="a1"',
+  '',
+  '--a1',
+  'Content-Type: text/plain; charset=UTF-8',
+  '',
+  'Something is wrong!',
+  '',
+  'To unsubscribe from this group and stop receiving emails from it, send an email to info+unsubscribe@puls-solutions.se.',
+  '',
+  '--a1',
+  'Content-Type: image/jpeg',
+  'Content-Disposition: attachment; filename="image0.jpeg"',
+  'Content-Transfer-Encoding: base64',
+  '',
+  '/9j/',
+  '',
+  '--a1',
+  'Content-Type: text/plain; charset=UTF-8',
+  '',
+  '/Christian',
+  '',
+  'To unsubscribe from this group and stop receiving emails from it, send an email to info+unsubscribe@puls-solutions.se.',
+  '',
+  '--a1--',
+  ''
+].join('\r\n')
+
 describe('MailStore group footer', () => {
   it('strips the Google Groups unsubscribe line from both parts', async () => {
     const store = new MailStore({ client: fakeClient({ k: VIA_GROUP }) })
@@ -279,6 +312,16 @@ describe('MailStore group footer', () => {
     const mail = await store.fetchAndParse({ bucket: 'b', key: 'k' })
     expect(mail.from).toContain('info@puls-solutions.se')
     expect(mail.replyTo).toBe('"Anne Oliviusson" <anne@taby.example>')
+  })
+
+  it('strips the footer from every text part, not only the last', async () => {
+    const store = new MailStore({
+      client: fakeClient({ k: SPLIT_BY_ATTACHMENT })
+    })
+    const mail = await store.fetchAndParse({ bucket: 'b', key: 'k' })
+    expect(mail.text).not.toContain('unsubscribe')
+    expect(mail.text).toContain('Something is wrong!')
+    expect(mail.text).toContain('/Christian')
   })
 
   it('keeps the same sentence when it is quoted content rather than a footer', async () => {
