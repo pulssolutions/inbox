@@ -298,6 +298,27 @@ const SPLIT_BY_ATTACHMENT = [
   ''
 ].join('\r\n')
 
+const HTML_ONLY = [
+  "From: \"'Christian' via Info\" <info@puls-solutions.se>",
+  'To: hello@puls-solutions.com',
+  'Subject: Re: Help',
+  'X-Mailer: iPhone Mail (24A437)',
+  'Content-Type: multipart/alternative; boundary="a1"',
+  '',
+  '--a1',
+  'Content-Type: text/html; charset="UTF-8"',
+  '',
+  '<html><body dir="auto">Tror du ja!<div><br><div dir="ltr">/Christian</div>' +
+    '<blockquote type="cite"><p>Nej nej, det funkar nog</p></blockquote></div></body></html>',
+  '',
+  '<p></p>',
+  '',
+  'To unsubscribe from this group and stop receiving emails from it, send an email to <a href="mailto:info+unsubscribe@puls-solutions.se">info+unsubscribe@puls-solutions.se</a>.<br />',
+  '',
+  '--a1--',
+  ''
+].join('\r\n')
+
 describe('MailStore group footer', () => {
   it('strips the Google Groups unsubscribe line from both parts', async () => {
     const store = new MailStore({ client: fakeClient({ k: VIA_GROUP }) })
@@ -322,6 +343,12 @@ describe('MailStore group footer', () => {
     expect(mail.text).not.toContain('unsubscribe')
     expect(mail.text).toContain('Something is wrong!')
     expect(mail.text).toContain('/Christian')
+  })
+
+  it('derives text from the html when the mail has no text part', async () => {
+    const store = new MailStore({ client: fakeClient({ k: HTML_ONLY }) })
+    const mail = await store.fetchAndParse({ bucket: 'b', key: 'k' })
+    expect(mail.text).toMatch(/^Tror du ja!\n+\/Christian\n+> Nej nej, det funkar nog$/)
   })
 
   it('keeps the same sentence when it is quoted content rather than a footer', async () => {

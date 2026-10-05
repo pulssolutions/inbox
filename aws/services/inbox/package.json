@@ -20,6 +20,7 @@
     "@aws-sdk/client-ses": "3.658.1",
     "@aws-sdk/lib-dynamodb": "3.658.1",
     "@aws-sdk/s3-request-presigner": "^3.658.1",
+    "html-to-text": "9.0.5",
     "mailparser": "3.7.1",
     "pino": "9.5.0"
   },

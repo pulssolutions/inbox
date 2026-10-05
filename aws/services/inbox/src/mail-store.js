@@ -1,6 +1,7 @@
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { simpleParser } from 'mailparser'
+import { convert } from 'html-to-text'
 
 // Read raw MIME from S3 and parse it on demand. The S3 client is injected so the
 // region (eu-west-1, where the inbox-mail bucket lives) is configured by the
@@ -65,6 +66,18 @@ const FOOTER_HTML = new RegExp(
 const stripGroupFooter = (body, pattern) =>
   body ? body.replace(pattern, '') : body
 
+// iPhone Mail sends html alone, and every reader of `text` - the webhook, the
+// reply quote - would otherwise see an empty body.
+const textOf = (mail) =>
+  mail.text ??
+  convert(stripGroupFooter(mail.html || '', FOOTER_HTML), {
+    wordwrap: false,
+    selectors: [
+      { selector: 'a', options: { ignoreHref: true } },
+      { selector: 'img', format: 'skip' }
+    ]
+  })
+
 const normalize = (mail) => ({
   from: mail.from?.text ?? null,
   // A mailing list that rewrites From: (Google Groups does, whenever the real
@@ -74,7 +87,7 @@ const normalize = (mail) => ({
   to: mail.to?.text ?? null,
   subject: mail.subject ?? null,
   date: mail.date ? mail.date.toISOString() : null,
-  text: stripGroupFooter(mail.text ?? '', FOOTER_TEXT).trimEnd(),
+  text: stripGroupFooter(textOf(mail), FOOTER_TEXT).trimEnd(),
   html: stripBigDataUris(stripGroupFooter(mail.html, FOOTER_HTML)) || null,
   attachments: (mail.attachments || []).map((a) => ({
     filename: a.filename ?? null,
