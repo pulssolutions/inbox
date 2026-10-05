@@ -55,6 +55,7 @@
         </select>
         <select
           class="form-control state-select"
+          :class="`state-${message.state || 'open'}`"
           data-testid="state-select"
           :value="message.state || 'open'"
           @change="$emit('set-state', $event.target.value)"
@@ -100,7 +101,7 @@
           </button>
           <button
             type="button"
-            class="btn btn-ghost btn-sm"
+            class="btn btn-secondary btn-sm"
             data-testid="mark-spam"
             @click="$emit('move', message.messageId, 'spam')"
           >
@@ -322,6 +323,7 @@ import {
   formatBytes,
   senderName,
   emailOf,
+  initials,
   STATES
 } from '@/helpers/format'
 
@@ -405,16 +407,12 @@ const timeline = computed(() => {
   return items.sort((a, b) => ((a.ts || '') < (b.ts || '') ? -1 : 1))
 })
 
-const emailAddr = computed(() => emailOf(props.message?.from || ''))
+// Reply-To first: a mailing list that rewrites From leaves the person there.
+const emailAddr = computed(() =>
+  emailOf(thread.value[0]?.replyTo || props.message?.from || '')
+)
 const nameOf = (from) => senderName(from || '')
-const initialsOf = (from) =>
-  nameOf(from)
-    .split(/\s+/)
-    .map((s) => s[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('')
-    .toUpperCase() || '?'
+const initialsOf = initials
 
 // Sanitize the HTML part (keeps inline colour, strips scripts/handlers).
 const htmlOf = (member) =>

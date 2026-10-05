@@ -61,6 +61,12 @@ describe('buildEmail (themed wrapper)', () => {
     expect(noHeader).not.toContain('background:#1f2430')
   })
 
+  it('renders a reply as plain flowing html, not a padded centred card', () => {
+    const { html } = buildEmail({ orgName: 'Klubben', paragraphs: ['p'], showHeader: false })
+    expect(html).not.toContain('<table')
+    expect(html).not.toContain('padding:24px')
+  })
+
   it('links the org name in the footer when footerUrl is given', () => {
     const { html } = buildEmail({
       orgName: 'Acme Ltd',

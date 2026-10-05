@@ -54,6 +54,23 @@ describe('MessageReader', () => {
     expect(el.text()).toContain('anna@example.se')
   })
 
+  it('shows the Reply-To address when a mailing list rewrote From', () => {
+    const w = mount(MessageReader, {
+      props: {
+        message: message({
+          from: "'Anna Svensson' via Info <info@acme.example>",
+          thread: [threadMsg({ replyTo: 'Anna Svensson <anna@example.se>' })]
+        })
+      }
+    })
+    expect(w.find('[data-testid="from-email"]').text()).toContain('anna@example.se')
+  })
+
+  it('colours the status select by state', () => {
+    const w = mount(MessageReader, { props: { message: message({ state: 'done' }) } })
+    expect(w.find('[data-testid="state-select"]').classes()).toContain('state-done')
+  })
+
   it('renders the whole thread (inbound + outbound bubbles)', () => {
     const w = mount(MessageReader, {
       props: {

@@ -221,6 +221,25 @@ describe('inbox-store', () => {
     expect(s.current.state).toBe('done')
   })
 
+  it('bulkUpdateAction patches every message, then re-lists', async () => {
+    updateMessageAPI.mockResolvedValue({})
+    listMessagesAPI.mockResolvedValueOnce([msg({ messageId: 'm3' })])
+    const s = useInboxStore()
+    s.messages = [msg(), msg({ messageId: 'm2' }), msg({ messageId: 'm3' })]
+    await s.bulkUpdateAction(['m1', 'm2'], { box: 'archived' })
+    expect(updateMessageAPI).toHaveBeenCalledWith('m1', { box: 'archived' })
+    expect(updateMessageAPI).toHaveBeenCalledWith('m2', { box: 'archived' })
+    expect(s.messages.map((m) => m.messageId)).toEqual(['m3'])
+  })
+
+  it('bulkUpdateAction still re-lists, then throws, when one patch fails', async () => {
+    updateMessageAPI.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('nope'))
+    listMessagesAPI.mockResolvedValueOnce([msg({ messageId: 'm2' })])
+    const s = useInboxStore()
+    await expect(s.bulkUpdateAction(['m1', 'm2'], { state: 'done' })).rejects.toThrow()
+    expect(s.messages.map((m) => m.messageId)).toEqual(['m2'])
+  })
+
   it('addNoteAction posts a note and appends it to the open thread', async () => {
     const note = { messageId: 'm1', text: 'ring upp', author: 'a@x', createdAt: 'z' }
     addNoteAPI.mockResolvedValueOnce(note)

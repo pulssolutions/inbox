@@ -173,6 +173,15 @@ export const useInboxStore = defineStore('inbox-store', {
     // Hand the issue to another category's team. Not optimistic-with-rollback
     // like archive: after the move only the server knows whether this admin can
     // still see the thread, so drop it and let the re-list put it back if so.
+    // ponytail: one PATCH per message; a bulk endpoint if lists grow to hundreds.
+    // Re-list either way, so a partial failure still shows what really changed.
+    async bulkUpdateAction(ids, patch) {
+      const results = await Promise.allSettled(ids.map((id) => updateMessageAPI(id, patch)))
+      await this.refreshMessagesAction()
+      const failed = results.filter((r) => r.status === 'rejected').length
+      if (failed) throw new Error(`${failed} av ${ids.length} ärenden kunde inte uppdateras.`)
+    },
+
     async transferMessageAction(id, category) {
       await transferMessageAPI(id, category)
       this.messages = this.messages.filter((m) => m.messageId !== id)

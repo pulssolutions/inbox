@@ -75,12 +75,12 @@ h3 {
   color: var(--accent-fg);
 }
 .btn-secondary {
-  background: var(--bg-2);
+  background: var(--bg-3);
   color: var(--fg);
   border-color: var(--border-2);
 }
 .btn-secondary:hover {
-  background: var(--bg-3);
+  background: var(--border);
   // Both declarations are load-bearing: Bootstrap's .btn:hover pulls colour and
   // border from --bs-btn-hover-*, which for .btn-secondary is white on grey.
   // Overriding background alone left the label invisible on hover.
@@ -476,7 +476,7 @@ textarea.form-control {
   text-align: left;
   font: inherit;
 }
-.list-item:last-child {
+.list-row:last-child .list-item {
   border-bottom: 0;
 }
 .list-item:hover {
@@ -669,10 +669,35 @@ textarea.form-control {
   background: var(--success-bg);
   color: var(--success-fg);
 }
+// .form-control drops the native arrow, which left these reading as text
+// inputs. Drawn in currentColor so it follows the theme and the state colour.
 .state-select {
   width: auto;
-  padding: 5px 9px;
+  padding: 5px 26px 5px 9px;
   font-size: 0.82rem;
+  cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position:
+    right 13px center,
+    right 9px center;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+}
+.state-select.state-open {
+  background-color: var(--info-bg);
+  color: var(--info-fg);
+  border-color: var(--info);
+}
+.state-select.state-pending {
+  background-color: var(--warning-bg);
+  color: var(--warning-fg);
+  border-color: var(--warning);
+}
+.state-select.state-done {
+  background-color: var(--success-bg);
+  color: var(--success-fg);
+  border-color: var(--success);
 }
 
 // ── internal note bubble ──

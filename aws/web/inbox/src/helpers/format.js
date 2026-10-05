@@ -112,6 +112,17 @@ export const senderName = (from) => {
   return angle ? angle[1].replace(/^"|"$/g, '') : String(from).trim()
 }
 
+// First letter of the first two words, skipping the quotes Google Groups wraps
+// a rewritten sender in ("'Anna Svensson' via Info").
+export const initials = (from) =>
+  senderName(from)
+    .split(/\s+/)
+    .map((w) => w.match(/[\p{L}\p{N}]/u)?.[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('')
+    .toUpperCase() || '?'
+
 // "Name <addr>" -> "addr"; a bare address stays as-is; '' when no address.
 export const emailOf = (from) => {
   if (!from) return ''

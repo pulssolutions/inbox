@@ -3,6 +3,7 @@ import {
   ago,
   formatDateTime,
   senderName,
+  initials,
   emailOf,
   stateLabel,
   auditActionLabel,
@@ -107,6 +108,18 @@ describe('senderName', () => {
   })
   it('handles empty', () => {
     expect(senderName('')).toBe('')
+  })
+})
+
+describe('initials', () => {
+  it('takes the first letter of the first two words', () => {
+    expect(initials('Anna Svensson <anna@example.se>')).toBe('AS')
+  })
+  it('skips quotes a mailing list wraps the name in', () => {
+    expect(initials("'Christian Hedin' via Info <info@example.se>")).toBe('CH')
+  })
+  it('falls back to ? without a name', () => {
+    expect(initials('')).toBe('?')
   })
 })
 

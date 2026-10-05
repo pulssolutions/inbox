@@ -8,34 +8,75 @@
       icon="📭"
     />
     <div v-else class="list" data-testid="message-list">
-      <button
-        v-for="m in messages"
-        :key="m.messageId"
-        type="button"
-        class="list-item"
-        :class="{ active: selectedId === m.messageId, unread: m.status === 'unread' }"
-        @click="$emit('select', m.messageId)"
-      >
-        <span class="av av-sm">{{ initials(m.from) }}</span>
-        <span class="li-main">
-          <span class="li-from">{{ name(m.from) }}</span>
-          <span class="li-subj">{{ m.subject || '(inget ämne)' }}</span>
-        </span>
-        <span class="li-meta">
-          <span class="li-row">
-            <span>{{ ago(m.lastActivityAt || m.receivedAt) }}</span>
-            <span
-              v-if="m.assignee"
-              class="av av-sm assignee-av"
-              :title="`Tilldelad: ${m.assignee}`"
-            >{{ assigneeInitials(m.assignee) }}</span>
+      <div class="bulk-bar">
+        <input
+          type="checkbox"
+          class="li-check"
+          data-testid="select-all"
+          aria-label="Markera alla"
+          :checked="allSelected"
+          :indeterminate="selected.length > 0 && !allSelected"
+          @change="$emit('update:selected', $event.target.checked ? messages.map((m) => m.messageId) : [])"
+        />
+        <template v-if="selected.length">
+          <span class="muted">{{ selected.length }} markerade</span>
+          <span class="topbar-spacer" />
+          <button
+            v-if="box !== 'archived'"
+            type="button"
+            class="btn btn-secondary btn-sm"
+            data-testid="bulk-archive"
+            @click="$emit('bulk', { box: 'archived' })"
+          >
+            Arkivera
+          </button>
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            data-testid="bulk-done"
+            @click="$emit('bulk', { state: 'done' })"
+          >
+            Markera klar
+          </button>
+        </template>
+        <span v-else class="muted">Markera alla</span>
+      </div>
+      <div v-for="m in messages" :key="m.messageId" class="list-row">
+        <input
+          type="checkbox"
+          class="li-check"
+          data-testid="select-row"
+          :aria-label="`Markera ${m.subject || name(m.from)}`"
+          :checked="selected.includes(m.messageId)"
+          @change="toggle(m.messageId, $event.target.checked)"
+        />
+        <button
+          type="button"
+          class="list-item"
+          :class="{ active: selectedId === m.messageId, unread: m.status === 'unread' }"
+          @click="$emit('select', m.messageId)"
+        >
+          <span class="av av-sm">{{ initials(m.from) }}</span>
+          <span class="li-main">
+            <span class="li-from">{{ name(m.from) }}</span>
+            <span class="li-subj">{{ m.subject || '(inget ämne)' }}</span>
           </span>
-          <span class="badge" :class="`state-${m.state || 'open'}`">
-            {{ stateLabel(m.state) }}
+          <span class="li-meta">
+            <span class="li-row">
+              <span>{{ ago(m.lastActivityAt || m.receivedAt) }}</span>
+              <span
+                v-if="m.assignee"
+                class="av av-sm assignee-av"
+                :title="`Tilldelad: ${m.assignee}`"
+              >{{ assigneeInitials(m.assignee) }}</span>
+            </span>
+            <span class="badge" :class="`state-${m.state || 'open'}`">
+              {{ stateLabel(m.state) }}
+            </span>
+            <span class="li-cat">{{ m.category }}</span>
           </span>
-          <span class="li-cat">{{ m.category }}</span>
-        </span>
-      </button>
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -43,32 +84,60 @@
 <script setup>
 import EmptyState from '@/components/EmptyState.vue'
 import Spinner from '@/components/Spinner.vue'
-import { ago, senderName, stateLabel } from '@/helpers/format'
+import { computed } from 'vue'
+import { ago, initials, senderName, stateLabel } from '@/helpers/format'
 
-defineProps({
+const props = defineProps({
   messages: { type: Array, default: () => [] },
   selectedId: { type: String, default: null },
-  loading: { type: Boolean, default: false }
+  loading: { type: Boolean, default: false },
+  // Ticked rows for bulk actions - not the open message (selectedId).
+  selected: { type: Array, default: () => [] },
+  box: { type: String, default: 'inbox' }
 })
-defineEmits(['select'])
+const emit = defineEmits(['select', 'update:selected', 'bulk'])
+
+const allSelected = computed(
+  () => props.messages.length > 0 && props.messages.every((m) => props.selected.includes(m.messageId))
+)
+const toggle = (id, on) =>
+  emit('update:selected', on ? [...props.selected, id] : props.selected.filter((s) => s !== id))
 
 const assigneeInitials = (email) => (email ? email.slice(0, 2).toUpperCase() : '')
 const name = (from) => senderName(from)
-const initials = (from) => {
-  const n = senderName(from)
-  return (
-    n
-      .split(/\s+/)
-      .map((s) => s[0])
-      .filter(Boolean)
-      .slice(0, 2)
-      .join('')
-      .toUpperCase() || '?'
-  )
-}
 </script>
 
 <style scoped>
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 6px 16px 6px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.82rem;
+}
+.list-row {
+  position: relative;
+}
+/* Sits over the row button's widened left padding, so the row keeps one
+   background for hover and the open message. */
+.list-row .li-check {
+  position: absolute;
+  left: 12px;
+  top: 16px;
+  z-index: 1;
+}
+.list-row .list-item {
+  padding-left: 36px;
+}
+.li-check {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
 .li-row {
   display: inline-flex;
   align-items: center;

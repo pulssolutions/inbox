@@ -174,6 +174,17 @@ describe('messages.detail', () => {
     expect(stored.status).toBe('read')
   })
 
+  it('exposes Reply-To so a list-rewritten From still shows the real sender', async () => {
+    await deps.db.putMessage({ org: ORG, message: baseMessage() })
+    deps.mailStore.seed({
+      bucket: 'inbox-bucket',
+      key: 'inbound/m1',
+      parsed: { text: 'x', html: null, attachments: [], replyTo: 'Anna <anna@example.se>' }
+    })
+    const res = await detail({ deps, org: ORG, pathParameters: { messageId: 'm1' } })
+    expect(res.thread[0].replyTo).toBe('Anna <anna@example.se>')
+  })
+
   it('includes internal notes in the detail response', async () => {
     await deps.db.putMessage({ org: ORG, message: baseMessage() })
     deps.mailStore.seed({ bucket: 'inbox-bucket', key: 'inbound/m1', parsed: { text: 'x', html: null, attachments: [] } })

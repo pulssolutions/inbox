@@ -62,18 +62,24 @@ export const buildEmail = ({
         footerUrl
       )}" style="color:#8a909c;text-decoration:underline">${footerName}</a>`
     : t.automatedFrom(footerName)
+  const textParts = []
+  if (heading) textParts.push(heading)
+  for (const p of paras) textParts.push(p)
+  if (ctaUrl) textParts.push(`${label}: ${ctaUrl}`)
+  const text = textParts.join('\n\n')
+
+  // A reply is a person writing, so it reads like one: no card, no padding. The
+  // card also left a wide blank margin once a client quoted it in a reply.
+  if (!showHeader) {
+    const html = `<!doctype html><html><body style="margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">${headingHtml}${paraHtml}${ctaHtml}<p style="margin:18px 0 0;color:#8a909c;font-size:12px">${footerInner}</p></body></html>`
+    return { html, text }
+  }
   const html = `<!doctype html><html><body style="margin:0;background:#f2f3f5;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e6e7ea">
 ${headerHtml}
 <tr><td style="padding:26px 28px">${headingHtml}${paraHtml}${ctaHtml}</td></tr>
 <tr><td style="padding:16px 28px;border-top:1px solid #eceef1"><span style="color:#8a909c;font-size:12px">${footerInner}</span></td></tr>
 </table></body></html>`
-
-  const textParts = []
-  if (heading) textParts.push(heading)
-  for (const p of paras) textParts.push(p)
-  if (ctaUrl) textParts.push(`${label}: ${ctaUrl}`)
-  const text = textParts.join('\n\n')
   return { html, text }
 }
 

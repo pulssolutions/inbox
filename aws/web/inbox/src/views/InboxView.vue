@@ -36,7 +36,10 @@
         :messages="store.visibleMessages"
         :selected-id="store.current?.messageId || null"
         :loading="store.loading.list"
+        :box="store.filters.box"
+        v-model:selected="selectedIds"
         @select="openMessage"
+        @bulk="onBulk"
       />
     </section>
 
@@ -178,6 +181,24 @@ const selectState = (s) => {
 const selectAssignment = (a) => {
   showFolders.value = false
   store.setAssignment(a)
+}
+
+// Ticked rows. Cleared whenever the list's scope changes, so an action never
+// hits rows the agent can no longer see.
+const selectedIds = ref([])
+watch(() => [store.filters, store.searchQuery], () => (selectedIds.value = []), { deep: true })
+
+const onBulk = async (patch) => {
+  const ids = selectedIds.value
+  selectedIds.value = []
+  const openLeaves = patch.box && ids.includes(store.current?.messageId)
+  try {
+    await store.bulkUpdateAction(ids, patch)
+  } catch (e) {
+    window.alert(e.message)
+  }
+  if (openLeaves) router.push({ name: 'inbox' })
+  else if (ids.includes(store.current?.messageId)) await store.openMessageAction(store.current.messageId)
 }
 
 // done() tells the composer whether to clear the draft or keep it and show why

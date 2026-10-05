@@ -121,7 +121,7 @@ export const list = async ({ deps, org, query = {}, claims }) => {
 // Resolve one thread member's displayable body (outbound from stored text,
 // inbound parsed from S3 on demand).
 const resolveMember = async (deps, m) => {
-  let body = { text: '', html: null, attachments: [] }
+  let body = { text: '', html: null, attachments: [], replyTo: null }
   if (m.direction === 'outbound' || !m.s3Key) {
     body = { text: m.bodyText || '', html: null, attachments: [] }
   } else {
@@ -133,7 +133,8 @@ const resolveMember = async (deps, m) => {
       body = {
         text: parsed.text || '',
         html: parsed.html || null,
-        attachments: parsed.attachments || []
+        attachments: parsed.attachments || [],
+        replyTo: parsed.replyTo || null
       }
     } catch {
       body = { text: '', html: null, attachments: [] }
@@ -143,6 +144,8 @@ const resolveMember = async (deps, m) => {
     messageId: m.messageId,
     direction: m.direction,
     from: m.from,
+    // The real sender when a mailing list rewrote From: (see replyRecipient).
+    replyTo: body.replyTo,
     // Email of the admin who sent this reply (outbound only); resolved to a
     // display name in detail().
     sentBy: m.sentBy,

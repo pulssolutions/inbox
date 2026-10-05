@@ -69,6 +69,27 @@ describe('MessageList', () => {
     expect(av.attributes('title')).toContain('linn@acme.example')
   })
 
+  it('emits the new selection when a row is ticked', async () => {
+    const w = mount(MessageList, { props: { messages, selected: ['b'] } })
+    await w.findAll('[data-testid="select-row"]')[0].setValue(true)
+    expect(w.emitted('update:selected')[0]).toEqual([['b', 'a']])
+  })
+
+  it('selects every row with the select-all box', async () => {
+    const w = mount(MessageList, { props: { messages } })
+    await w.find('[data-testid="select-all"]').setValue(true)
+    expect(w.emitted('update:selected')[0]).toEqual([['a', 'b']])
+  })
+
+  it('offers bulk archive and done only while something is selected', async () => {
+    const w = mount(MessageList, { props: { messages } })
+    expect(w.find('[data-testid="bulk-archive"]').exists()).toBe(false)
+    await w.setProps({ selected: ['a'] })
+    await w.find('[data-testid="bulk-archive"]').trigger('click')
+    await w.find('[data-testid="bulk-done"]').trigger('click')
+    expect(w.emitted('bulk')).toEqual([[{ box: 'archived' }], [{ state: 'done' }]])
+  })
+
   it('shows a workflow-state badge per row', () => {
     const w = mount(MessageList, {
       props: { messages: [{ ...messages[0], state: 'pending' }] }
