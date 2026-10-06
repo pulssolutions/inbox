@@ -160,12 +160,21 @@ Resources:
         IgnorePublicAcls: true
         BlockPublicPolicy: true
         RestrictPublicBuckets: true
+      # The backup for the MIME: a delete or overwrite is recoverable for the
+      # same 35 days as the table's PITR. See docs/backup.md.
+      VersioningConfiguration:
+        Status: Enabled
       LifecycleConfiguration:
         Rules:
           - Id: ExpireRawEmail
             Status: Enabled
             Prefix: inbound/
             ExpirationInDays: !Ref InboundObjectExpiryDays
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 35
+          - Id: RemoveExpiredDeleteMarkers
+            Status: Enabled
+            ExpiredObjectDeleteMarker: true
           # Attachments the API copies out of the MIME so the browser can fetch
           # them by presigned URL. The URL lives 15 minutes; the copy needn't
           # outlast the day.
@@ -173,6 +182,8 @@ Resources:
             Status: Enabled
             Prefix: attachments/
             ExpirationInDays: 1
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 1
       Tags:
         - Key: Project
           Value: !Ref ProjectPrefix

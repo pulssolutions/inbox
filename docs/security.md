@@ -35,6 +35,7 @@ the main privacy consideration.
 - **Deletion**: an agent can permanently delete a whole thread, but only after
   archiving it. There is no automated erasure workflow — a subject-access or
   erasure request is handled by finding the thread and deleting it.
+  Backups keep it recoverable for 35 days more; see [backup.md](backup.md).
 - Extracted attachments are copied to `attachments/` for presigned download and
   expire after one day.
 - Buckets are private, encrypted at rest, and blocked from public access. The
