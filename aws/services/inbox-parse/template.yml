@@ -444,6 +444,31 @@ Resources:
           }
           // --- end spam rule ---
 
+          // --- auto-reply rule ---
+          // Out-of-office and other autoresponders are dropped, never stored.
+          // Auto-Submitted alone is not enough: Zendesk relays real tickets
+          // marked auto-generated, and the Google group puts Precedence: list
+          // on everything. An Exchange inbox rule answers with auto-generated
+          // too, so it is told apart by its source - and by In-Reply-To, since
+          // a rule that forwards a customer's mail to us answers nothing.
+          const isAutoReply = (headers) => {
+            const h = new Map(
+              (headers || []).map((x) => [
+                String(x.name || '').toLowerCase(),
+                String(x.value || '').trim().toLowerCase()
+              ])
+            )
+            return (
+              (h.get('auto-submitted') || '').startsWith('auto-replied') ||
+              h.has('x-autoreply') ||
+              h.has('x-autorespond') ||
+              h.get('precedence') === 'auto_reply' ||
+              (h.get('x-ms-exchange-generated-message-source') === 'mailbox rules agent' &&
+                h.has('in-reply-to'))
+            )
+          }
+          // --- end auto-reply rule ---
+
           // Message-ID tokens referenced by a reply (In-Reply-To + References).
           const referencedIds = (headers) => {
             const ids = []
@@ -562,8 +587,9 @@ Resources:
               const tenant = picked.tenant
               const org = tenant ? tenant.org : null
               const spam = isSpam(r.ses.receipt)
+              const autoReply = isAutoReply(mail.headers)
 
-              if (org) {
+              if (org && !autoReply) {
                 // Thread replies via In-Reply-To / References → existing message.
                 const refs = referencedIds(mail.headers)
                 const parent = await findThread(org, refs)
@@ -601,7 +627,7 @@ Resources:
                 } catch (e) {
                   console.error('put message failed', mail.messageId, e.message)
                 }
-              } else {
+              } else if (!org) {
                 console.error('no tenant resolved for', toHeader)
               }
 
@@ -615,6 +641,7 @@ Resources:
                   subject: h.subject,
                   messageId: mail.messageId,
                   spam,
+                  autoReply,
                   s3Key
                 })
               )

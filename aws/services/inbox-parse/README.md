@@ -33,13 +33,16 @@ one fails loudly instead.
    rows are the allowlist, and a missing one means mail silently does not
    appear. That is the first thing to check when a new deployment receives
    nothing.
-4. Threads the message by matching ids from `In-Reply-To` / `References`
+4. **An auto-reply is logged and dropped** (`autoReply: true` in the log line):
+   out-of-office and other autoresponders never become tickets. The raw MIME
+   stays in S3. See the `auto-reply rule` in the template for what counts.
+5. Threads the message by matching ids from `In-Reply-To` / `References`
    against the `mailMessageId` values stored on previous outbound replies.
-5. Writes the row — headers, subject, addresses and the S3 pointer. **The body
+6. Writes the row — headers, subject, addresses and the S3 pointer. **The body
    is never copied into DynamoDB.**
-6. A reply reopens its thread and bumps `lastActivityAt` so it floats to the
+7. A reply reopens its thread and bumps `lastActivityAt` so it floats to the
    top of the agent's list.
-7. Notifies the agents responsible for the category, best-effort.
+8. Notifies the agents responsible for the category, best-effort.
 
 ## Known gap
 
