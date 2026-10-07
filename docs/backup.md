@@ -2,8 +2,8 @@
 
 Backups stay inside the deployment's own account and region. They cover a
 mistake, a bug or a bad deploy - not the loss of the account itself. Both
-stores keep 35 days of history, and every stateful resource has
-`DeletionPolicy: Retain`, so deleting a stack deletes no data.
+stores keep 35 days of history. The table, the mail bucket and the user pool
+have `DeletionPolicy: Retain`, so deleting a stack deletes none of them.
 
 | Data | Store | Recovery |
 | --- | --- | --- |
