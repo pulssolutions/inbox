@@ -1,4 +1,8 @@
-import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand
+} from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { simpleParser } from 'mailparser'
 import { convert } from 'html-to-text'
@@ -108,6 +112,12 @@ export class MailStore {
       new GetObjectCommand({ Bucket: bucket || this.defaultBucket, Key: key })
     )
     return toBuffer(obj.Body)
+  }
+
+  async deleteRaw({ bucket, key }) {
+    await this.client.send(
+      new DeleteObjectCommand({ Bucket: bucket || this.defaultBucket, Key: key })
+    )
   }
 
   async fetchAndParse({ bucket, key }) {

@@ -806,6 +806,37 @@ describe('messages.remove (hard delete)', () => {
     expect(log[0]).toMatchObject({ action: 'delete', targetId: 'root' })
   })
 
+  it('erases the raw MIME of every message in the thread', async () => {
+    await deps.db.putMessage({ org: ORG, message: baseMessage({ messageId: 'root', s3Key: 'inbound/root', box: 'archived' }) })
+    await deps.db.putMessage({ org: ORG, message: baseMessage({ messageId: 'in2', s3Key: 'inbound/in2', threadId: 'root', box: 'archived' }) })
+    await deps.db.putMessage({ org: ORG, message: baseMessage({ messageId: 'out', s3Key: undefined, direction: 'outbound', threadId: 'root', box: 'archived' }) })
+    await remove({ deps, org: ORG, pathParameters: { messageId: 'root' } })
+    expect(deps.mailStore.deleted).toHaveLength(2)
+    expect(deps.mailStore.deleted).toEqual(expect.arrayContaining([
+      { bucket: 'inbox-bucket', key: 'inbound/root' },
+      { bucket: 'inbox-bucket', key: 'inbound/in2' }
+    ]))
+  })
+
+  it('keeps a reply that arrives mid-delete, since its MIME was not erased', async () => {
+    await deps.db.putMessage({ org: ORG, message: baseMessage({ messageId: 'root', s3Key: 'inbound/root', box: 'archived' }) })
+    deps.mailStore.deleteRaw = async () => {
+      await deps.db.putMessage({ org: ORG, message: baseMessage({ messageId: 'late', s3Key: 'inbound/late', threadId: 'root' }) })
+    }
+    await remove({ deps, org: ORG, pathParameters: { messageId: 'root' } })
+    expect(await deps.db.getMessage({ org: ORG, messageId: 'root' })).toBeNull()
+    expect(await deps.db.getMessage({ org: ORG, messageId: 'late' })).not.toBeNull()
+  })
+
+  it('keeps the thread when the MIME cannot be erased, so the delete can be retried', async () => {
+    await deps.db.putMessage({ org: ORG, message: baseMessage({ box: 'archived' }) })
+    deps.mailStore.deleteRaw = async () => {
+      throw new Error('AccessDenied')
+    }
+    await expect(remove({ deps, org: ORG, pathParameters: { messageId: 'm1' } })).rejects.toThrow('AccessDenied')
+    expect(await deps.db.getMessage({ org: ORG, messageId: 'm1' })).not.toBeNull()
+  })
+
   it('refuses to delete a message that is not archived', async () => {
     await deps.db.putMessage({ org: ORG, message: baseMessage({ box: 'inbox' }) })
     await expect(

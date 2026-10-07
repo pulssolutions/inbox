@@ -344,10 +344,10 @@ export class Database {
     return items.map(stripInternal)
   }
 
-  // Permanently delete an entire thread: every message row in the thread plus
-  // their internal notes. (Raw MIME in S3 expires via its own lifecycle rule.)
-  async deleteThread({ org, threadId }) {
-    const members = await this.listThread({ org, threadId })
+  // Permanently delete these thread members and their internal notes. The
+  // caller passes the members it erased the MIME of, so a reply arriving
+  // meanwhile is not deleted with its MIME left behind.
+  async deleteThread({ org, members }) {
     for (const m of members) {
       const notes = await this.listNotesByMessage({ org, messageId: m.messageId })
       for (const n of notes) {
