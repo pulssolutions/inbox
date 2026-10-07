@@ -5,6 +5,7 @@ import { FakeMailStore } from '../helper/fake-mail-store.js'
 import { Database } from '../../src/database.js'
 import {
   list,
+  counts,
   detail,
   updateStatus,
   reply,
@@ -72,7 +73,7 @@ describe('messages.list', () => {
   it('lists inbox messages newest-first by default', async () => {
     await deps.db.putMessage({ org: ORG, message: baseMessage({ messageId: 'old', receivedAt: '2026-05-01T00:00:00Z' }) })
     await deps.db.putMessage({ org: ORG, message: baseMessage({ messageId: 'new', receivedAt: '2026-06-01T00:00:00Z' }) })
-    const res = await list({ deps, org: ORG, query: {} })
+    const res = (await list({ deps, org: ORG, query: {} })).items
     expect(res.map((m) => m.messageId)).toEqual(['new', 'old'])
   })
 
@@ -80,7 +81,7 @@ describe('messages.list', () => {
     await deps.db.putMessage({ org: ORG, message: baseMessage({ messageId: 'old', from: 'Anna <a@x.se>', receivedAt: '2026-05-01T00:00:00Z' }) })
     await deps.db.putMessage({ org: ORG, message: baseMessage({ messageId: 'new', receivedAt: '2026-06-01T00:00:00Z' }) })
     await reply({ deps, org: ORG, pathParameters: { messageId: 'old' }, body: { body: 'svar' }, claims: {} })
-    const res = await list({ deps, org: ORG, query: {} })
+    const res = (await list({ deps, org: ORG, query: {} })).items
     expect(res.map((m) => m.messageId)).toEqual(['old', 'new'])
   })
 
@@ -95,32 +96,103 @@ describe('messages.list', () => {
       org: ORG,
       message: baseMessage({ messageId: 'r2', direction: 'inbound', inReplyTo: 'root', threadId: 'root' })
     })
-    const res = await list({ deps, org: ORG, query: {} })
+    const res = (await list({ deps, org: ORG, query: {} })).items
     expect(res.map((m) => m.messageId)).toEqual(['root'])
   })
 
   it('filters by category', async () => {
     await deps.db.putMessage({ org: ORG, message: baseMessage({ messageId: 'a', category: 'kurser' }) })
     await deps.db.putMessage({ org: ORG, message: baseMessage({ messageId: 'b', category: 'styrelse' }) })
-    const res = await list({ deps, org: ORG, query: { category: 'styrelse' } })
+    const res = (await list({ deps, org: ORG, query: { category: 'styrelse' } })).items
     expect(res.map((m) => m.messageId)).toEqual(['b'])
   })
 
   it('lists the spam box when requested, and keeps it out of the inbox', async () => {
     await deps.db.putMessage({ org: ORG, message: baseMessage({ messageId: 'junk', box: 'spam' }) })
     await deps.db.putMessage({ org: ORG, message: baseMessage() })
-    expect((await list({ deps, org: ORG, query: {} })).map((m) => m.messageId)).toEqual(['m1'])
+    expect((await list({ deps, org: ORG, query: {} })).items.map((m) => m.messageId)).toEqual(['m1'])
     expect(
-      (await list({ deps, org: ORG, query: { box: 'spam' } })).map((m) => m.messageId)
+      (await list({ deps, org: ORG, query: { box: 'spam' } })).items.map((m) => m.messageId)
     ).toEqual(['junk'])
   })
 
   it('lists archived box when requested', async () => {
     await deps.db.putMessage({ org: ORG, message: baseMessage({ messageId: 'arch', box: 'archived' }) })
-    const inbox = await list({ deps, org: ORG, query: {} })
-    const archived = await list({ deps, org: ORG, query: { box: 'archived' } })
+    const inbox = (await list({ deps, org: ORG, query: {} })).items
+    const archived = (await list({ deps, org: ORG, query: { box: 'archived' } })).items
     expect(inbox).toHaveLength(0)
     expect(archived.map((m) => m.messageId)).toEqual(['arch'])
+  })
+})
+
+describe('messages.list paging', () => {
+  let deps
+  beforeEach(() => {
+    deps = makeDeps()
+  })
+
+  const seed = async (n, extra = () => ({})) => {
+    for (let i = 0; i < n; i++) {
+      const receivedAt = new Date(Date.UTC(2026, 0, 1) + i * 60000).toISOString()
+      await deps.db.putMessage({ org: ORG, message: baseMessage({ messageId: `m${i}`, receivedAt, ...extra(i) }) })
+    }
+  }
+  const ids = (page) => page.items.map((m) => m.messageId)
+
+  it('pages 25 at a time, newest first, until the cursor runs out', async () => {
+    await seed(51)
+    const p1 = await list({ deps, org: ORG, query: {} })
+    const p2 = await list({ deps, org: ORG, query: { cursor: p1.cursor } })
+    const p3 = await list({ deps, org: ORG, query: { cursor: p2.cursor } })
+    expect(ids(p1)[0]).toBe('m50')
+    expect([p1, p2, p3].map((p) => p.items.length)).toEqual([25, 25, 1])
+    expect(ids(p3)).toEqual(['m0'])
+    expect(p3.cursor).toBeNull()
+  })
+
+  it('has no cursor when the last page is exactly full', async () => {
+    await seed(25)
+    expect((await list({ deps, org: ORG, query: {} })).cursor).toBeNull()
+  })
+
+  it('fills a page with matching rows when filters skip most of the box', async () => {
+    await seed(60, (i) => ({ state: i % 2 ? 'done' : 'open' }))
+    const p1 = await list({ deps, org: ORG, query: { state: 'open' } })
+    const p2 = await list({ deps, org: ORG, query: { state: 'open', cursor: p1.cursor } })
+    expect(p1.items).toHaveLength(25)
+    expect(p2.items).toHaveLength(5)
+    expect([...p1.items, ...p2.items].every((m) => m.state === 'open')).toBe(true)
+  })
+
+  it('filters by assignment against the caller', async () => {
+    await seed(3, (i) => ({ assignee: ['me@acme.example', 'other@acme.example', null][i] }))
+    const claims = { email: 'me@acme.example' }
+    expect(ids(await list({ deps, org: ORG, query: { assignment: 'mine' }, claims }))).toEqual(['m0'])
+    expect(ids(await list({ deps, org: ORG, query: { assignment: 'unassigned' }, claims }))).toEqual(['m2'])
+  })
+
+  it('refuses a cursor from another org or box', async () => {
+    await seed(26)
+    const { cursor } = await list({ deps, org: ORG, query: {} })
+    const other = (await list({ deps, org: ORG, query: { box: 'archived' } })).cursor
+    expect(other).toBeNull()
+    await expect(list({ deps, org: 'evil', query: { cursor } })).rejects.toMatchObject({ name: 'ValidationError' })
+    await expect(list({ deps, org: ORG, query: { box: 'archived', cursor } })).rejects.toMatchObject({ name: 'ValidationError' })
+    await expect(list({ deps, org: ORG, query: { cursor: 'garbage' } })).rejects.toMatchObject({ name: 'ValidationError' })
+  })
+})
+
+describe('messages.counts', () => {
+  it('counts inbox threads per category, scoped to the caller', async () => {
+    const deps = makeDeps()
+    await deps.db.putMessage({ org: ORG, message: baseMessage({ messageId: 'k1' }) })
+    await deps.db.putMessage({ org: ORG, message: baseMessage({ messageId: 'k2' }) })
+    await deps.db.putMessage({ org: ORG, message: baseMessage({ messageId: 'reply', threadId: 'k1' }) })
+    await deps.db.putMessage({ org: ORG, message: baseMessage({ messageId: 'old', box: 'archived' }) })
+    await deps.db.putMessage({ org: ORG, message: baseMessage({ messageId: 's1', category: 'styrelse' }) })
+    expect(await counts({ deps, org: ORG })).toEqual({ kurser: 2, styrelse: 1 })
+    const scoped = { orgs: JSON.stringify({ [ORG]: { categories: ['kurser'] } }) }
+    expect(await counts({ deps, org: ORG, claims: scoped })).toEqual({ kurser: 2 })
   })
 })
 

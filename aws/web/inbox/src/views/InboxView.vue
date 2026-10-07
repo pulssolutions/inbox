@@ -30,7 +30,9 @@
             {{ activeFilters.join(' · ') }}
           </span>
         </div>
-        <span class="muted">{{ store.visibleMessages.length }}</span>
+        <span v-if="!paged || (store.pages.length === 1 && !store.nextCursor)" class="muted">
+          {{ store.visibleMessages.length }}
+        </span>
       </div>
       <MessageList
         :messages="store.visibleMessages"
@@ -38,8 +40,13 @@
         :loading="store.loading.list"
         :box="store.filters.box"
         v-model:selected="selectedIds"
+        :start="paged ? store.page.start : 0"
+        :has-prev="paged && store.pages.length > 1"
+        :has-next="paged && !!store.nextCursor"
         @select="openMessage"
         @bulk="onBulk"
+        @prev="store.prevPageAction"
+        @next="store.nextPageAction"
       />
     </section>
 
@@ -141,6 +148,9 @@ const paneTitle = computed(() => {
   if (store.filters.box !== 'inbox') return BOX_LABELS[store.filters.box]
   return store.filters.category || BOX_LABELS.inbox
 })
+
+// Search results come whole; only the box list is paged.
+const paged = computed(() => !store.searchQuery)
 
 const STATE_LABELS = { open: 'Öppna', pending: 'Pågår', done: 'Klara' }
 const ASSIGNMENT_LABELS = { mine: 'Mina', unassigned: 'Otilldelade' }

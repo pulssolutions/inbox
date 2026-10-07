@@ -11,7 +11,8 @@ vi.mock('@/services/inbox-service', () => ({
   addNoteAPI: vi.fn(),
   deleteMessageAPI: vi.fn(),
   searchMessagesAPI: vi.fn(),
-  transferMessageAPI: vi.fn()
+  transferMessageAPI: vi.fn(),
+  countsAPI: vi.fn(async () => ({}))
 }))
 
 import {
@@ -23,9 +24,12 @@ import {
   addNoteAPI,
   deleteMessageAPI,
   searchMessagesAPI,
-  transferMessageAPI
+  transferMessageAPI,
+  countsAPI
 } from '@/services/inbox-service'
 import { useAdminSessionStore } from '@/stores/admin-session-store'
+
+const page = (items, cursor = null) => ({ items, cursor })
 
 const msg = (over = {}) => ({
   messageId: 'm1',
@@ -42,6 +46,7 @@ describe('inbox-store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
+    listMessagesAPI.mockReset()
   })
 
   it('initial state is empty + inbox box', () => {
@@ -52,12 +57,12 @@ describe('inbox-store', () => {
   })
 
   it('loadMessagesAction loads the current box', async () => {
-    listMessagesAPI.mockResolvedValueOnce([msg()])
+    listMessagesAPI.mockResolvedValueOnce(page([msg()]))
     const s = useInboxStore()
     const p = s.loadMessagesAction()
     expect(s.loading.list).toBe(true)
     await p
-    expect(listMessagesAPI).toHaveBeenCalledWith({ box: 'inbox' })
+    expect(listMessagesAPI).toHaveBeenCalledWith(expect.objectContaining({ box: 'inbox', cursor: null }))
     expect(s.messages).toHaveLength(1)
     expect(s.loading.list).toBe(false)
   })
@@ -71,25 +76,13 @@ describe('inbox-store', () => {
   })
 
   it('setBoxAction switches box, clears category, reloads', async () => {
-    listMessagesAPI.mockResolvedValue([msg({ box: 'archived' })])
+    listMessagesAPI.mockResolvedValue(page([msg({ box: 'archived' })]))
     const s = useInboxStore()
     s.filters.category = 'kurser'
     await s.setBoxAction('archived')
     expect(s.filters.box).toBe('archived')
     expect(s.filters.category).toBeNull()
-    expect(listMessagesAPI).toHaveBeenCalledWith({ box: 'archived' })
-  })
-
-  it('categoriesWithCounts groups the loaded box', () => {
-    const s = useInboxStore()
-    s.messages = [
-      msg({ messageId: 'a', category: 'kurser' }),
-      msg({ messageId: 'b', category: 'kurser' }),
-      msg({ messageId: 'c', category: 'styrelse' })
-    ]
-    const counts = s.categoriesWithCounts
-    expect(counts.find((c) => c.name === 'kurser').count).toBe(2)
-    expect(counts.find((c) => c.name === 'styrelse').count).toBe(1)
+    expect(listMessagesAPI).toHaveBeenCalledWith(expect.objectContaining({ box: 'archived', cursor: null }))
   })
 
   it('filters by workflow state', () => {
@@ -198,7 +191,7 @@ describe('inbox-store', () => {
 
   it('transferMessageAction drops the row, clears current and re-lists', async () => {
     transferMessageAPI.mockResolvedValueOnce({ ...msg(), category: 'agility' })
-    listMessagesAPI.mockResolvedValueOnce([])
+    listMessagesAPI.mockResolvedValueOnce(page([]))
     const s = useInboxStore()
     s.messages = [msg()]
     s.current = { ...msg() }
@@ -223,7 +216,7 @@ describe('inbox-store', () => {
 
   it('bulkUpdateAction patches every message, then re-lists', async () => {
     updateMessageAPI.mockResolvedValue({})
-    listMessagesAPI.mockResolvedValueOnce([msg({ messageId: 'm3' })])
+    listMessagesAPI.mockResolvedValueOnce(page([msg({ messageId: 'm3' })]))
     const s = useInboxStore()
     s.messages = [msg(), msg({ messageId: 'm2' }), msg({ messageId: 'm3' })]
     await s.bulkUpdateAction(['m1', 'm2'], { box: 'archived' })
@@ -234,7 +227,7 @@ describe('inbox-store', () => {
 
   it('bulkUpdateAction still re-lists, then throws, when one patch fails', async () => {
     updateMessageAPI.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('nope'))
-    listMessagesAPI.mockResolvedValueOnce([msg({ messageId: 'm2' })])
+    listMessagesAPI.mockResolvedValueOnce(page([msg({ messageId: 'm2' })]))
     const s = useInboxStore()
     await expect(s.bulkUpdateAction(['m1', 'm2'], { state: 'done' })).rejects.toThrow()
     expect(s.messages.map((m) => m.messageId)).toEqual(['m2'])
@@ -252,7 +245,7 @@ describe('inbox-store', () => {
   })
 
   it('refreshMessagesAction updates the list without toggling loading', async () => {
-    listMessagesAPI.mockResolvedValueOnce([msg({ messageId: 'fresh' })])
+    listMessagesAPI.mockResolvedValueOnce(page([msg({ messageId: 'fresh' })]))
     const s = useInboxStore()
     const p = s.refreshMessagesAction()
     expect(s.loading.list).toBe(false) // never flips → no spinner flicker
@@ -304,5 +297,60 @@ describe('inbox-store', () => {
     await s.replyAction('m1', { body: 'Svar' })
     expect(s.messages[0].assignee).toBe('me@x.se')
     expect(s.current.assignee).toBe('me@x.se')
+  })
+
+  describe('paging', () => {
+    it('steps forward with the cursor and back to the page before', async () => {
+      listMessagesAPI
+        .mockResolvedValueOnce(page([msg({ messageId: 'a' }), msg({ messageId: 'b' })], 'c1'))
+        .mockResolvedValueOnce(page([msg({ messageId: 'c' })]))
+        .mockResolvedValueOnce(page([msg({ messageId: 'a' }), msg({ messageId: 'b' })], 'c1'))
+      const s = useInboxStore()
+      await s.loadMessagesAction()
+      await s.nextPageAction()
+      expect(listMessagesAPI).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: 'c1' }))
+      expect(s.page.start).toBe(2)
+      expect(s.nextCursor).toBeNull()
+      await s.prevPageAction()
+      expect(s.page.start).toBe(0)
+      expect(s.messages.map((m) => m.messageId)).toEqual(['a', 'b'])
+    })
+
+    it('a filter change starts over on the first page', async () => {
+      listMessagesAPI.mockResolvedValue(page([msg()], 'c1'))
+      const s = useInboxStore()
+      await s.loadMessagesAction()
+      await s.nextPageAction()
+      await s.setCategory('styrelse')
+      expect(s.pages).toHaveLength(1)
+      expect(listMessagesAPI).toHaveBeenLastCalledWith(
+        expect.objectContaining({ category: 'styrelse', cursor: null })
+      )
+    })
+
+    it('steps back when the page it is on has emptied', async () => {
+      listMessagesAPI
+        .mockResolvedValueOnce(page([msg({ messageId: 'a' })], 'c1'))
+        .mockResolvedValueOnce(page([msg({ messageId: 'b' })]))
+        .mockResolvedValueOnce(page([]))
+        .mockResolvedValueOnce(page([msg({ messageId: 'a' })]))
+      const s = useInboxStore()
+      await s.loadMessagesAction()
+      await s.nextPageAction()
+      await s.refreshMessagesAction()
+      expect(s.pages).toHaveLength(1)
+      expect(s.messages.map((m) => m.messageId)).toEqual(['a'])
+    })
+
+    it('takes the sidebar counts from the server', async () => {
+      listMessagesAPI.mockResolvedValueOnce(page([]))
+      countsAPI.mockResolvedValueOnce({ styrelse: 1, kurser: 3 })
+      const s = useInboxStore()
+      await s.loadMessagesAction()
+      await vi.waitFor(() => expect(s.categoriesWithCounts).toEqual([
+        { name: 'kurser', count: 3 },
+        { name: 'styrelse', count: 1 }
+      ]))
+    })
   })
 })

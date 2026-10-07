@@ -1,7 +1,11 @@
 import { httpGet, httpPatch, httpPost, httpDelete } from './api-service'
 
-export const listMessagesAPI = ({ box, category } = {}) =>
-  httpGet('/admin/messages', { query: { box, category } })
+// One page: { items, cursor }. Pass the returned cursor back for the next page.
+export const listMessagesAPI = ({ box, category, state, assignment, cursor } = {}) =>
+  httpGet('/admin/messages', { query: { box, category, state, assignment, cursor } })
+
+// Inbox threads per category, { [category]: count }.
+export const countsAPI = () => httpGet('/admin/messages/counts')
 
 export const getMessageAPI = (id) =>
   httpGet(`/admin/messages/${encodeURIComponent(id)}`)

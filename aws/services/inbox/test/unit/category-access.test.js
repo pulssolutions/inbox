@@ -66,13 +66,13 @@ describe('category access enforcement (server-side)', () => {
 
   it('list never returns a disallowed category', async () => {
     await seedBoth(deps)
-    const res = await list({ deps, org: ORG, query: {}, claims: SCOPED })
+    const res = (await list({ deps, org: ORG, query: {}, claims: SCOPED })).items
     expect(res.map((m) => m.messageId)).toEqual(['k1'])
   })
 
   it('superadmin (*) sees every category', async () => {
     await seedBoth(deps)
-    const res = await list({ deps, org: ORG, query: {}, claims: SUPER })
+    const res = (await list({ deps, org: ORG, query: {}, claims: SUPER })).items
     expect(res.map((m) => m.messageId).sort()).toEqual(['k1', 's1'])
   })
 
@@ -144,7 +144,7 @@ describe('category access enforcement (server-side)', () => {
       body: { category: 'styrelse' },
       claims: SCOPED
     })
-    expect(await list({ deps, org: ORG, query: {}, claims: SCOPED })).toEqual([])
+    expect((await list({ deps, org: ORG, query: {}, claims: SCOPED })).items).toEqual([])
     await expect(
       detail({ deps, org: ORG, pathParameters: { messageId: 'k1' }, claims: SCOPED })
     ).rejects.toMatchObject({ name: 'NotFoundError' })

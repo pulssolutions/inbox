@@ -96,7 +96,22 @@ export class FakeDocClient {
     if (input.Select === 'COUNT') {
       return { Count: matched.length, ScannedCount: matched.length }
     }
-    return { Items: matched.map((it) => ({ ...it })), Count: matched.length }
+    if (input.ExclusiveStartKey) {
+      const { pk, sk } = input.ExclusiveStartKey
+      matched = matched.slice(matched.findIndex((it) => it.pk === pk && it.sk === sk) + 1)
+    }
+    let lastKey
+    if (input.Limit && matched.length > input.Limit) {
+      matched = matched.slice(0, input.Limit)
+      const last = matched.at(-1)
+      lastKey = { pk: last.pk, sk: last.sk }
+      if (indexName) Object.assign(lastKey, { [pkAttr]: last[pkAttr], [skAttr]: last[skAttr] })
+    }
+    return {
+      Items: matched.map((it) => ({ ...it })),
+      Count: matched.length,
+      ...(lastKey && { LastEvaluatedKey: lastKey })
+    }
   }
 
   _extractPkPlaceholder(expr, pkAttr, names) {

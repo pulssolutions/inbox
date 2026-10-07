@@ -110,7 +110,7 @@ describe('integration: admin messages', () => {
 
     const listRes = await h.handler(apiEvent({ method: 'GET', path: '/admin/messages', claims }))
     expect(listRes.statusCode).toBe(200)
-    expect(parseBody(listRes)).toHaveLength(1)
+    expect(parseBody(listRes).items).toHaveLength(1)
 
     const detailRes = await h.handler(
       apiEvent({
@@ -135,7 +135,7 @@ describe('integration: admin messages', () => {
     )
     expect(archiveRes.statusCode).toBe(200)
     const afterArchive = await h.handler(apiEvent({ method: 'GET', path: '/admin/messages', claims }))
-    expect(parseBody(afterArchive)).toHaveLength(0)
+    expect(parseBody(afterArchive).items).toHaveLength(0)
 
     const replyRes = await h.handler(
       apiEvent({
@@ -201,6 +201,6 @@ describe('integration: admin messages', () => {
     ev.requestContext.http = { method: 'GET' }
     const res = await h.handler(ev)
     expect(res.statusCode).toBe(200)
-    expect(parseBody(res)).toHaveLength(1)
+    expect(parseBody(res).items).toHaveLength(1)
   })
 })

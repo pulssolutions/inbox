@@ -14,6 +14,7 @@ const wrapAdmin = (cap, fn) => async (ctx) => {
 export const buildRoutes = () => ({
   'GET /admin/messages': wrapAdmin('inbox.read', messages.list),
   'GET /admin/messages/search': wrapAdmin('inbox.read', messages.search),
+  'GET /admin/messages/counts': wrapAdmin('inbox.read', messages.counts),
   'GET /admin/assignees': wrapAdmin('inbox.read', messages.listAssignees),
   'GET /admin/categories': wrapAdmin('inbox.read', messages.listCategories),
   'GET /admin/messages/{messageId}': wrapAdmin('inbox.read', messages.detail),

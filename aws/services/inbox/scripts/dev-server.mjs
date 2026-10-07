@@ -56,7 +56,21 @@ const SEED = [
     box: 'inbox',
     s3Bucket: 'local',
     s3Key: 'inbound/seed-2'
-  }
+  },
+  // Enough archived threads to page through.
+  ...Array.from({ length: 51 }, (_, i) => ({
+    messageId: `seed-archived-${i + 1}`,
+    category: i % 2 ? 'kurser' : 'styrelse',
+    from: `Testare ${i + 1} <test${i + 1}@example.se>`,
+    to: ['kurser@acme.example'],
+    subject: `Arkiverat ärende ${i + 1}`,
+    receivedAt: new Date(Date.UTC(2026, 4, 1) + i * 3600000).toISOString(),
+    status: 'read',
+    direction: 'inbound',
+    box: 'archived',
+    s3Bucket: 'local',
+    s3Key: `inbound/seed-archived-${i + 1}`
+  }))
 ]
 
 for (const m of SEED) {

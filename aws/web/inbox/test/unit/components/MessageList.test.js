@@ -96,4 +96,26 @@ describe('MessageList', () => {
     })
     expect(w.find('.badge.state-pending').text()).toBe('Pågår')
   })
+
+  describe('pager', () => {
+    it('shows the range and asks the parent to move', async () => {
+      const w = mount(MessageList, { props: { messages, start: 25, hasPrev: true, hasNext: true } })
+      expect(w.find('[data-testid="pager"]').text()).toContain('26–27')
+      await w.find('[data-testid="page-prev"]').trigger('click')
+      await w.find('[data-testid="page-next"]').trigger('click')
+      expect(w.emitted('prev')).toHaveLength(1)
+      expect(w.emitted('next')).toHaveLength(1)
+    })
+
+    it('disables the direction that has no page', () => {
+      const w = mount(MessageList, { props: { messages, hasNext: true } })
+      expect(w.find('[data-testid="page-prev"]').attributes('disabled')).toBeDefined()
+      expect(w.find('[data-testid="page-next"]').attributes('disabled')).toBeUndefined()
+    })
+
+    it('is hidden when there is only one page', () => {
+      const w = mount(MessageList, { props: { messages } })
+      expect(w.find('[data-testid="pager"]').exists()).toBe(false)
+    })
+  })
 })

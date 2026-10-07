@@ -6,7 +6,7 @@ import {
   DeleteCommand,
   UpdateCommand
 } from '@aws-sdk/lib-dynamodb'
-import { NotFoundError } from './errors.js'
+import { NotFoundError, ValidationError } from './errors.js'
 import {
   tenantKey,
   messageKey,
@@ -27,6 +27,26 @@ const stripInternal = (item) => {
 }
 
 const nowIso = () => new Date().toISOString()
+
+const encodeCursor = ({ pk, sk, gsi1pk, gsi1sk }) =>
+  Buffer.from(JSON.stringify({ pk, sk, gsi1pk, gsi1sk })).toString('base64url')
+
+const decodeCursor = (cursor, pk, gsi1pk) => {
+  let key = null
+  try {
+    key = JSON.parse(Buffer.from(String(cursor), 'base64url').toString('utf8'))
+  } catch {
+    // falls through to the check below
+  }
+  const valid =
+    key?.pk === pk &&
+    key.gsi1pk === gsi1pk &&
+    typeof key.sk === 'string' &&
+    typeof key.gsi1sk === 'string' &&
+    Object.keys(key).length === 4
+  if (!valid) throw new ValidationError('INVALID_CURSOR', 'Invalid page cursor')
+  return key
+}
 
 const buildMessageItem = ({ org, message }) => {
   const id = message.messageId
@@ -225,6 +245,37 @@ export class Database {
       scanForward: false
     })
     return items.map(stripInternal)
+  }
+
+  // One page of a box, newest first. `accept` filters in code, so a page fills
+  // with matching rows however many the filter skips; reading one row past
+  // `limit` tells whether another page exists. The cursor is the last row's
+  // keys, checked against org and box so it can only resume this partition.
+  async listMessagesPage({ org, box, limit, cursor, accept }) {
+    const gsi1pk = messageGsi1Pk(org, box)
+    const rows = []
+    let startKey = cursor ? decodeCursor(cursor, messageKey(org, '').pk, gsi1pk) : undefined
+    do {
+      const res = await this.docClient.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: 'gsi1',
+          KeyConditionExpression: 'gsi1pk = :pk',
+          ExpressionAttributeValues: { ':pk': gsi1pk },
+          ScanIndexForward: false,
+          Limit: 100,
+          ...(startKey && { ExclusiveStartKey: startKey })
+        })
+      )
+      for (const it of res.Items || []) if (accept(stripInternal(it))) rows.push(it)
+      startKey = res.LastEvaluatedKey
+    } while (startKey && rows.length <= limit)
+    const page = rows.slice(0, limit)
+    const last = page.at(-1)
+    return {
+      items: page.map(stripInternal),
+      cursor: rows.length > limit ? encodeCursor(last) : null
+    }
   }
 
   async updateMessageStatus({ org, messageId, status }) {

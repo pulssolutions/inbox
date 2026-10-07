@@ -14,17 +14,17 @@ describe('inbox-service (against fetch shim)', () => {
   beforeEach(() => resetTestApi())
 
   it('lists inbox messages newest-first by default', async () => {
-    const list = await listMessagesAPI()
+    const { items: list } = await listMessagesAPI()
     expect(list.map((m) => m.messageId)).toEqual(['m-new', 'm-old'])
   })
 
   it('lists the archived box', async () => {
-    const list = await listMessagesAPI({ box: 'archived' })
+    const { items: list } = await listMessagesAPI({ box: 'archived' })
     expect(list.map((m) => m.messageId)).toEqual(['m-arch'])
   })
 
   it('filters by category server-side', async () => {
-    const list = await listMessagesAPI({ category: 'styrelse' })
+    const { items: list } = await listMessagesAPI({ category: 'styrelse' })
     expect(list.map((m) => m.messageId)).toEqual(['m-old'])
   })
 
@@ -66,6 +66,6 @@ describe('inbox-service (against fetch shim)', () => {
   it('transfers a message to another category', async () => {
     const res = await transferMessageAPI('m-new', 'agility')
     expect(res).toMatchObject({ messageId: 'm-new', category: 'agility', assignee: null })
-    expect((await listMessagesAPI()).find((x) => x.messageId === 'm-new').category).toBe('agility')
+    expect((await listMessagesAPI()).items.find((x) => x.messageId === 'm-new').category).toBe('agility')
   })
 })

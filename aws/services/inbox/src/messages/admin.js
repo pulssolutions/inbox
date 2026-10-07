@@ -100,22 +100,44 @@ export const attachment = async ({ deps, org, pathParameters, claims }) => {
   }
 }
 
+const PAGE_SIZE = 25
+
+// What a caller may see in a list: thread roots only (replies live inside the
+// thread; legacy rows without threadId count as roots) in allowed categories.
+const listable = (claims, org) => {
+  const allowed = allowedCategories(claims, org)
+  return (m) =>
+    (m.threadId || m.messageId) === m.messageId &&
+    (allowed === '*' || allowed.includes(m.category))
+}
+
 export const list = async ({ deps, org, query = {}, claims }) => {
   const box = VALID_BOX.has(query.box) ? query.box : 'inbox'
-  let messages = await deps.db.listMessagesByBox({ org, box })
-  // One row per thread: show only roots; replies (inbound or outbound) live
-  // inside the thread. Legacy rows without threadId fall back to root.
-  messages = messages.filter((m) => (m.threadId || m.messageId) === m.messageId)
-  // Server-side category scoping — never return rows the caller can't see.
-  const allowed = allowedCategories(claims, org)
-  if (allowed !== '*') {
-    const set = new Set(allowed)
-    messages = messages.filter((m) => set.has(m.category))
+  const visible = listable(claims, org)
+  const { category, state, assignment } = query
+  return deps.db.listMessagesPage({
+    org,
+    box,
+    limit: PAGE_SIZE,
+    cursor: query.cursor,
+    accept: (m) =>
+      visible(m) &&
+      (!category || m.category === category) &&
+      (!state || (m.state || 'open') === state) &&
+      (assignment !== 'mine' || m.assignee === claims?.email) &&
+      (assignment !== 'unassigned' || !m.assignee)
+  })
+}
+
+// Inbox threads per category, for the sidebar. Reads the whole inbox, which
+// stays small because it is the working set; archived and spam are not counted.
+export const counts = async ({ deps, org, claims }) => {
+  const visible = listable(claims, org)
+  const out = {}
+  for (const m of await deps.db.listMessagesByBox({ org, box: 'inbox' })) {
+    if (visible(m)) out[m.category] = (out[m.category] || 0) + 1
   }
-  if (query.category) {
-    return messages.filter((m) => m.category === query.category)
-  }
-  return messages
+  return out
 }
 
 // Resolve one thread member's displayable body (outbound from stored text,

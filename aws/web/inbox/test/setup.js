@@ -181,7 +181,17 @@ const handle = async (input, init = {}) => {
     )
     if (query.category) list = list.filter((m) => m.category === query.category)
     list = [...list].sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : -1))
-    return jsonResponse(200, list.map(indexOf))
+    return jsonResponse(200, { items: list.map(indexOf), cursor: null })
+  }
+
+  if (method === 'GET' && path === '/admin/messages/counts') {
+    const counts = {}
+    for (const m of state.messages) {
+      if (m.box === 'inbox' && (m.threadId || m.messageId) === m.messageId) {
+        counts[m.category] = (counts[m.category] || 0) + 1
+      }
+    }
+    return jsonResponse(200, counts)
   }
 
   if (path === '/admin/messages/search' && method === 'GET') {

@@ -77,6 +77,29 @@
           </span>
         </button>
       </div>
+      <div v-if="hasPrev || hasNext" class="pager muted" data-testid="pager">
+        <span>{{ start + 1 }}–{{ start + messages.length }}</span>
+        <button
+          type="button"
+          class="btn btn-secondary btn-sm"
+          data-testid="page-prev"
+          aria-label="Föregående sida"
+          :disabled="!hasPrev"
+          @click="$emit('prev')"
+        >
+          ‹
+        </button>
+        <button
+          type="button"
+          class="btn btn-secondary btn-sm"
+          data-testid="page-next"
+          aria-label="Nästa sida"
+          :disabled="!hasNext"
+          @click="$emit('next')"
+        >
+          ›
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -93,9 +116,13 @@ const props = defineProps({
   loading: { type: Boolean, default: false },
   // Ticked rows for bulk actions - not the open message (selectedId).
   selected: { type: Array, default: () => [] },
-  box: { type: String, default: 'inbox' }
+  box: { type: String, default: 'inbox' },
+  // Paging is the server's; the list only shows where it is and asks to move.
+  start: { type: Number, default: 0 },
+  hasPrev: { type: Boolean, default: false },
+  hasNext: { type: Boolean, default: false }
 })
-const emit = defineEmits(['select', 'update:selected', 'bulk'])
+const emit = defineEmits(['select', 'update:selected', 'bulk', 'prev', 'next'])
 
 const allSelected = computed(
   () => props.messages.length > 0 && props.messages.every((m) => props.selected.includes(m.messageId))
@@ -137,6 +164,14 @@ const name = (from) => senderName(from)
   margin: 0;
   accent-color: var(--accent);
   cursor: pointer;
+}
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 0.82rem;
 }
 .li-row {
   display: inline-flex;
