@@ -405,6 +405,11 @@ export const remove = async ({ deps, org, pathParameters, claims }) => {
     throw new ValidationError('NOT_ARCHIVED', 'Archive the message before deleting it')
   }
   const root = message.threadId || message.messageId
+  // MIME first: if erasing it fails, the thread is still there to retry from.
+  const members = await deps.db.listThread({ org, threadId: root })
+  for (const m of members.filter((m) => m.s3Key)) {
+    await deps.mailStore.deleteRaw({ bucket: m.s3Bucket, key: m.s3Key })
+  }
   await deps.db.deleteThread({ org, threadId: root })
   await recordAudit(deps, {
     org,

@@ -42,7 +42,7 @@ aws s3api copy-object --bucket <mail bucket> --key inbound/<sesMessageId> \
 
 ## Erasure
 
-A permanently deleted thread stays recoverable from PITR for up to 35 days.
-Its MIME is not deleted with the thread at all - it lives until the
-`ops.mailRetentionDays` lifecycle expires it, then 35 more days as a
-noncurrent version.
+Permanently deleting a thread deletes its rows and its raw MIME. Both stay
+recoverable for 35 days - the rows through PITR, the MIME as a noncurrent
+version - and are gone after that. An attachment the browser downloaded may
+also leave a copy under `attachments/` for up to two days.

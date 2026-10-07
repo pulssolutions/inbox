@@ -360,3 +360,12 @@ describe('MailStore group footer', () => {
     expect(mail.text).toContain('Vad betyder raden ovan?')
   })
 })
+
+describe('MailStore.deleteRaw', () => {
+  it('deletes the object, falling back to the default bucket', async () => {
+    const client = fakeClient({ 'inbound/m1': PLAIN })
+    const store = new MailStore({ client, defaultBucket: 'mail' })
+    await store.deleteRaw({ key: 'inbound/m1' })
+    expect(client.calls).toEqual([{ Bucket: 'mail', Key: 'inbound/m1' }])
+  })
+})

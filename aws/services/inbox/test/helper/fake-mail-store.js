@@ -4,6 +4,11 @@ export class FakeMailStore {
     this.parsed = new Map()
     this.raw = new Map()
     this.presigned = []
+    this.deleted = []
+  }
+
+  async deleteRaw({ bucket, key }) {
+    this.deleted.push({ bucket, key })
   }
 
   seed({ bucket, key, parsed, raw }) {

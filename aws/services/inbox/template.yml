@@ -518,6 +518,12 @@ Resources:
                 Action:
                   - s3:GetObject
                 Resource: !Sub "arn:aws:s3:::${MailBucketName}/*"
+              # Erasing a thread erases its raw MIME. The bucket is versioned,
+              # so this leaves a noncurrent copy for the 35-day backup window.
+              - Effect: Allow
+                Action:
+                  - s3:DeleteObject
+                Resource: !Sub "arn:aws:s3:::${MailBucketName}/inbound/*"
               # Big attachments are copied out of the raw MIME to their own
               # short-lived object and served to the browser as a presigned URL.
               - Effect: Allow

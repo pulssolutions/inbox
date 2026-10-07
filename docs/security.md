@@ -35,9 +35,8 @@ the main privacy consideration.
 - **Deletion**: an agent can permanently delete a whole thread, but only after
   archiving it. There is no automated erasure workflow — a subject-access or
   erasure request is handled by finding the thread and deleting it.
-  This erases the DynamoDB rows only; they stay recoverable from backup for
-  35 days. The raw MIME is not deleted: it lives until `ops.mailRetentionDays`,
-  then 35 days more as a noncurrent version. See [backup.md](backup.md).
+  That erases the thread's rows and raw MIME; both stay recoverable from
+  backup for 35 days more. See [backup.md](backup.md).
 - Extracted attachments are copied to `attachments/` for presigned download and
   expire after one day, then linger one more as a noncurrent version.
 - Buckets are private, encrypted at rest, and blocked from public access. The
