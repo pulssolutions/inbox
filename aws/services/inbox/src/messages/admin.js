@@ -410,7 +410,7 @@ export const remove = async ({ deps, org, pathParameters, claims }) => {
   for (const m of members.filter((m) => m.s3Key)) {
     await deps.mailStore.deleteRaw({ bucket: m.s3Bucket, key: m.s3Key })
   }
-  await deps.db.deleteThread({ org, threadId: root })
+  await deps.db.deleteThread({ org, members })
   await recordAudit(deps, {
     org,
     claims,

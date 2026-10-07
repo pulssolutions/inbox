@@ -818,6 +818,16 @@ describe('messages.remove (hard delete)', () => {
     ]))
   })
 
+  it('keeps a reply that arrives mid-delete, since its MIME was not erased', async () => {
+    await deps.db.putMessage({ org: ORG, message: baseMessage({ messageId: 'root', s3Key: 'inbound/root', box: 'archived' }) })
+    deps.mailStore.deleteRaw = async () => {
+      await deps.db.putMessage({ org: ORG, message: baseMessage({ messageId: 'late', s3Key: 'inbound/late', threadId: 'root' }) })
+    }
+    await remove({ deps, org: ORG, pathParameters: { messageId: 'root' } })
+    expect(await deps.db.getMessage({ org: ORG, messageId: 'root' })).toBeNull()
+    expect(await deps.db.getMessage({ org: ORG, messageId: 'late' })).not.toBeNull()
+  })
+
   it('keeps the thread when the MIME cannot be erased, so the delete can be retried', async () => {
     await deps.db.putMessage({ org: ORG, message: baseMessage({ box: 'archived' }) })
     deps.mailStore.deleteRaw = async () => {

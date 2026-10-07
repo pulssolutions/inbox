@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { DeleteObjectCommand } from '@aws-sdk/client-s3'
 import { MailStore } from '../../src/mail-store.js'
 
 // Fake S3 client: returns the seeded raw MIME Buffer as the object Body.
@@ -363,9 +364,11 @@ describe('MailStore group footer', () => {
 
 describe('MailStore.deleteRaw', () => {
   it('deletes the object, falling back to the default bucket', async () => {
-    const client = fakeClient({ 'inbound/m1': PLAIN })
-    const store = new MailStore({ client, defaultBucket: 'mail' })
+    const sent = []
+    const store = new MailStore({ client: { send: async (cmd) => sent.push(cmd) }, defaultBucket: 'mail' })
     await store.deleteRaw({ key: 'inbound/m1' })
-    expect(client.calls).toEqual([{ Bucket: 'mail', Key: 'inbound/m1' }])
+    expect(sent).toHaveLength(1)
+    expect(sent[0]).toBeInstanceOf(DeleteObjectCommand)
+    expect(sent[0].input).toEqual({ Bucket: 'mail', Key: 'inbound/m1' })
   })
 })
