@@ -86,6 +86,7 @@ describe('inbox-store', () => {
   })
 
   it('filters by workflow state', () => {
+    listMessagesAPI.mockResolvedValue(page([]))
     const s = useInboxStore()
     s.messages = [msg({ messageId: 'a', state: 'open' }), msg({ messageId: 'b', state: 'done' })]
     s.setStateFilter('done')
@@ -93,6 +94,7 @@ describe('inbox-store', () => {
   })
 
   it('filters by assignment (mine / unassigned)', () => {
+    listMessagesAPI.mockResolvedValue(page([]))
     useAdminSessionStore().user = { email: 'me@x.se' }
     const s = useInboxStore()
     s.messages = [
