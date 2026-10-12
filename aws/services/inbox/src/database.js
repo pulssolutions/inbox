@@ -14,6 +14,8 @@ import {
   settingsKey,
   noteKey,
   notePrefix,
+  seenKey,
+  seenPrefix,
   auditKey,
   messageGsi1Pk,
   messageGsi1Sk
@@ -395,14 +397,37 @@ export class Database {
     return items.map(stripInternal)
   }
 
-  // Permanently delete these thread members and their internal notes. The
-  // caller passes the members it erased the MIME of, so a reply arriving
-  // meanwhile is not deleted with its MIME left behind.
+  // ---- seen marks (who opened a thread, and when) -----------------------
+
+  async markSeen({ org, threadId, email }) {
+    const seenAt = nowIso()
+    await this._updateAttributes({
+      key: seenKey(org, threadId, email),
+      set: { threadId, email: String(email).toLowerCase(), seenAt }
+    })
+    return { threadId, email, seenAt }
+  }
+
+  async listSeen({ org, threadId }) {
+    const items = await this._query({
+      pkAttr: 'pk',
+      pkValue: `${org}:seen`,
+      skBeginsWith: seenPrefix(threadId)
+    })
+    return items.map(stripInternal)
+  }
+
+  // Permanently delete these thread members, their internal notes and seen
+  // marks. The caller passes the members it erased the MIME of, so a reply
+  // arriving meanwhile is not deleted with its MIME left behind.
   async deleteThread({ org, members }) {
     for (const m of members) {
       const notes = await this.listNotesByMessage({ org, messageId: m.messageId })
       for (const n of notes) {
         await this._delete(noteKey(org, m.messageId, n.createdAt))
+      }
+      for (const s of await this.listSeen({ org, threadId: m.messageId })) {
+        await this._delete(seenKey(org, m.messageId, s.email))
       }
       await this._delete(messageKey(org, m.messageId))
     }

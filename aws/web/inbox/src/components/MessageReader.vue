@@ -126,6 +126,17 @@
                 <span v-if="item.m.direction === 'outbound'" class="badge badge-accent">Skickat svar</span>
                 <span v-if="item.m.sentByName" class="muted" data-testid="sent-by">av {{ item.m.sentByName }}</span>
                 <span class="muted">{{ formatDateTime(item.m.receivedAt) }}</span>
+                <span class="topbar-spacer" />
+                <span
+                  v-if="(item.m.seenBy || []).length"
+                  v-tooltip
+                  class="seen-eye"
+                  data-testid="seen-by"
+                  tabindex="0"
+                  :data-bs-title="seenTitle(item.m.seenBy)"
+                >
+                  <EyeIcon />
+                </span>
               </div>
               <!-- eslint-disable-next-line vue/no-v-html -- sanitized via DOMPurify -->
               <div v-if="htmlOf(item.m)" class="body-html" v-html="htmlOf(item.m)" />
@@ -161,6 +172,17 @@
               <div class="body-head">
                 <b>{{ item.n.authorName || item.n.author }}</b>
                 <span class="muted">{{ formatDateTime(item.n.createdAt) }}</span>
+                <span class="topbar-spacer" />
+                <span
+                  v-if="(item.n.seenBy || []).length"
+                  v-tooltip
+                  class="seen-eye"
+                  data-testid="seen-by"
+                  tabindex="0"
+                  :data-bs-title="seenTitle(item.n.seenBy)"
+                >
+                  <EyeIcon />
+                </span>
               </div>
               <div class="body-text">{{ item.n.text }}</div>
             </div>
@@ -313,7 +335,8 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, h, ref, watch } from 'vue'
+import { Tooltip } from 'bootstrap'
 import DOMPurify from 'dompurify'
 import EmptyState from '@/components/EmptyState.vue'
 import Spinner from '@/components/Spinner.vue'
@@ -412,6 +435,22 @@ const emailAddr = computed(() =>
   emailOf(thread.value[0]?.replyTo || props.message?.from || '')
 )
 const nameOf = (from) => senderName(from || '')
+
+// Bootstrap tooltip (hover on desktop, tap on touch). The title is re-read on
+// update so the list stays current when another agent opens the thread.
+const seenTitle = (seenBy) => 'Läst av ' + seenBy.map((s) => s.name || s.email).join(', ')
+const vTooltip = {
+  mounted: (el) => new Tooltip(el),
+  updated: (el) =>
+    Tooltip.getInstance(el)?.setContent({ '.tooltip-inner': el.getAttribute('data-bs-title') }),
+  unmounted: (el) => Tooltip.getInstance(el)?.dispose()
+}
+// Bootstrap Icons "eye", inlined: one glyph is not worth the icon font.
+const EyeIcon = () =>
+  h('svg', { viewBox: '0 0 16 16', width: 16, height: 16, fill: 'currentColor', 'aria-hidden': 'true' }, [
+    h('path', { d: 'M16 8s-3-5.5-8-5.5S0 8 0 8s3 5.5 8 5.5S16 8 16 8M1.173 8a13 13 0 0 1 1.66-2.043C4.12 4.668 5.88 3.5 8 3.5s3.879 1.168 5.168 2.457A13 13 0 0 1 14.828 8q-.086.13-.195.288c-.335.48-.83 1.12-1.465 1.755C11.879 11.332 10.119 12.5 8 12.5s-3.879-1.168-5.168-2.457A13 13 0 0 1 1.172 8z' }),
+    h('path', { d: 'M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5M4.5 8a3.5 3.5 0 1 1 7 0 3.5 3.5 0 0 1-7 0' })
+  ])
 const initialsOf = initials
 
 // Sanitize the HTML part (keeps inline colour, strips scripts/handlers).
@@ -463,6 +502,14 @@ const choose = (close) => {
 </script>
 
 <style scoped>
+.seen-eye {
+  display: inline-flex;
+  color: var(--fg-3);
+  cursor: default;
+}
+.seen-eye:hover {
+  color: var(--fg);
+}
 .from-email {
   color: var(--fg-3);
   font-size: 0.85rem;

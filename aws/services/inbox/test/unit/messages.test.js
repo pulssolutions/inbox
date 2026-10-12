@@ -265,6 +265,64 @@ describe('messages.detail', () => {
     expect(res.notes.map((n) => n.text)).toEqual(['ring upp'])
   })
 
+  describe('seen by', () => {
+    const seed = async () => {
+      await deps.db.putAdmin({ org: ORG, admin: { email: 'a@x.se', name: 'Anna', role: 'admin' } })
+      await deps.db.putAdmin({ org: ORG, admin: { email: 'b@x.se', name: 'Bo', role: 'admin' } })
+      await deps.db.putMessage({ org: ORG, message: baseMessage() })
+      deps.mailStore.seed({ bucket: 'inbox-bucket', key: 'inbound/m1', parsed: { text: 'x', html: null, attachments: [] } })
+    }
+    const open = (email) =>
+      detail({ deps, org: ORG, pathParameters: { messageId: 'm1' }, claims: { ...CLAIMS, email } })
+
+    it('lists every agent who opened the thread, with names, on each item', async () => {
+      await seed()
+      await open('a@x.se')
+      const res = await open('b@x.se')
+      expect(res.thread[0].seenBy.map((s) => s.name)).toEqual(['Bo', 'Anna'])
+      expect(res.thread[0].seenBy[0].seenAt).toBeTruthy()
+    })
+
+    it('does not list a viewer on an item newer than their last open', async () => {
+      await seed()
+      await open('a@x.se')
+      await new Promise((r) => setTimeout(r, 5))
+      await deps.db.putNote({ org: ORG, note: { messageId: 'm1', text: 'ring upp', author: 'b@x.se' } })
+      const res = await open('b@x.se')
+      expect(res.thread[0].seenBy.map((s) => s.email)).toEqual(['b@x.se', 'a@x.se'])
+      expect(res.notes[0].seenBy.map((s) => s.email)).toEqual(['b@x.se'])
+    })
+
+    it('always counts the author of a note or reply as having seen it', async () => {
+      await seed()
+      await deps.db.putNote({ org: ORG, note: { messageId: 'm1', text: 'n', author: 'a@x.se' } })
+      await deps.db.putMessage({
+        org: ORG,
+        message: baseMessage({ messageId: 'r1', direction: 'outbound', threadId: 'm1', sentBy: 'b@x.se', status: 'read', s3Key: undefined, bodyText: 'svar' })
+      })
+      const res = await detail({ deps, org: ORG, pathParameters: { messageId: 'm1' } })
+      expect(res.notes[0].seenBy.map((s) => s.name)).toEqual(['Anna'])
+      expect(res.thread[1].seenBy.map((s) => s.name)).toEqual(['Bo'])
+      expect(res.thread[0].seenBy).toEqual([])
+    })
+
+    it('marks the open before reading the thread, so a reply landing mid-read stays unseen', async () => {
+      await seed()
+      await open('a@x.se')
+      const at = (pred) => deps.docClient.callLog.findIndex(pred)
+      const marked = at((c) => c.name === 'UpdateCommand' && c.input.Key.pk === 'acme:seen')
+      const snapshot = at((c) => c.name === 'QueryCommand' && c.input.ExpressionAttributeValues[':pk'] === 'acme:message')
+      expect(marked).toBeGreaterThan(-1)
+      expect(marked).toBeLessThan(snapshot)
+    })
+
+    it('records nothing without a caller email', async () => {
+      await seed()
+      await detail({ deps, org: ORG, pathParameters: { messageId: 'm1' } })
+      expect(await deps.db.listSeen({ org: ORG, threadId: 'm1' })).toEqual([])
+    })
+  })
+
   it('throws NotFoundError for a missing message', async () => {
     await expect(
       detail({ deps, org: ORG, pathParameters: { messageId: 'nope' } })
@@ -988,6 +1046,9 @@ describe('messages.addNote', () => {
       claims: { email: 'leader@acme.example' }
     })
     expect(res.data).toMatchObject({ author: 'leader@acme.example', authorName: 'Patricia Gullberg' })
+    expect(res.data.seenBy).toEqual([
+      { email: 'leader@acme.example', name: 'Patricia Gullberg', seenAt: res.data.createdAt }
+    ])
   })
 
   it('falls back to the email when no admin row exists', async () => {

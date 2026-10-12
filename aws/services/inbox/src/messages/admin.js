@@ -196,8 +196,12 @@ export const detail = async ({ deps, org, pathParameters, claims }) => {
   const messageId = pathParameters?.messageId
   const message = await requireMessage(deps, org, messageId, claims)
 
-  // The whole conversation (root + our replies), oldest first.
+  // Mark the open before the snapshot: a reply landing while we read is then
+  // newer than the mark and stays unseen.
   const root = message.threadId || message.messageId
+  if (claims?.email) await deps.db.markSeen({ org, threadId: root, email: claims.email })
+
+  // The whole conversation (root + our replies), oldest first.
   const members = await deps.db.listThread({ org, threadId: root })
   const thread = await Promise.all(members.map((m) => resolveMember(deps, m)))
 
@@ -207,17 +211,32 @@ export const detail = async ({ deps, org, pathParameters, claims }) => {
     status = 'read'
   }
 
+  const seen = await deps.db.listSeen({ org, threadId: root })
+
   const notes = await deps.db.listNotesByMessage({ org, messageId })
 
   // Label replies and notes with the writing admin's display name (resolved
   // here so historical rows that only stored an email also get a name).
   const names = await adminNameMap(deps, org)
-  const threadNamed = thread.map((m) =>
-    m.sentBy ? { ...m, sentByName: displayName(names, m.sentBy) } : m
-  )
+  // Who has seen an item: everyone who opened the thread since it was written,
+  // plus whoever wrote it.
+  const seenBy = (ts, author) => {
+    const list = seen
+      .filter((s) => s.seenAt >= (ts || ''))
+      .sort((a, b) => (a.seenAt < b.seenAt ? 1 : -1))
+    const me = author && String(author).toLowerCase()
+    if (me && !list.some((s) => s.email === me)) list.push({ email: me, seenAt: ts })
+    return list.map((s) => ({ email: s.email, name: displayName(names, s.email), seenAt: s.seenAt }))
+  }
+  const threadNamed = thread.map((m) => ({
+    ...m,
+    ...(m.sentBy && { sentByName: displayName(names, m.sentBy) }),
+    seenBy: seenBy(m.receivedAt, m.sentBy)
+  }))
   const notesNamed = notes.map((n) => ({
     ...n,
-    authorName: displayName(names, n.author)
+    authorName: displayName(names, n.author),
+    seenBy: seenBy(n.createdAt, n.author)
   }))
 
   return { ...message, status, thread: threadNamed, notes: notesNamed }
@@ -537,7 +556,11 @@ export const addNote = async ({ deps, org, pathParameters, body, claims }) => {
   // Resolve the author's display name so the optimistic UI append shows a name
   // (detail() resolves it the same way on reload).
   const me = await deps.db.getAdmin({ org, email: author })
-  return { statusCode: 201, data: { ...note, authorName: me?.name || author } }
+  const name = me?.name || author
+  return {
+    statusCode: 201,
+    data: { ...note, authorName: name, seenBy: [{ email: author, name, seenAt: note.createdAt }] }
+  }
 }
 
 const generateId = () => {

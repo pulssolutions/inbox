@@ -109,6 +109,25 @@ describe('MessageReader', () => {
     expect(w.find('[data-testid="sent-by"]').text()).toContain('Patricia Gullberg')
   })
 
+  it('shows an eye per item whose tooltip names the readers', () => {
+    const seenBy = [
+      { email: 'b@x.se', name: 'Bo', seenAt: '2026-06-02T11:00:00Z' },
+      { email: 'a@x.se', seenAt: '2026-06-02T10:00:00Z' }
+    ]
+    const w = mount(MessageReader, {
+      props: {
+        message: message({
+          thread: [threadMsg({ seenBy })],
+          notes: [{ author: 'a@x', text: 'n', createdAt: '2026-06-02T10:00:00Z', seenBy: [] }]
+        })
+      }
+    })
+    const eyes = w.findAll('[data-testid="seen-by"]')
+    expect(eyes).toHaveLength(1) // the note has no readers → no eye
+    expect(eyes[0].attributes('data-bs-title')).toBe('Läst av Bo, a@x.se')
+    expect(eyes[0].find('svg').exists()).toBe(true)
+  })
+
   it('shows the note author name, falling back to email', () => {
     const named = mount(MessageReader, {
       props: {

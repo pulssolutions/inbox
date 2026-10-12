@@ -31,6 +31,15 @@ export const noteKey = (org, messageId, createdAt) => ({
 
 export const notePrefix = (messageId) => `${messageId}#`
 
+// Last time an admin opened a thread, one row per (thread, admin). Who has
+// seen a given reply or note is derived from this against the item's time.
+export const seenKey = (org, threadId, email) => ({
+  pk: `${org}:seen`,
+  sk: `${threadId}#${String(email).toLowerCase()}`
+})
+
+export const seenPrefix = (threadId) => `${threadId}#`
+
 // Append-only audit log; SK sorts by time so a descending query is newest-first.
 export const auditKey = (org, ts, id) => ({
   pk: `${org}:audit`,
