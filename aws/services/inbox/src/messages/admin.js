@@ -207,17 +207,33 @@ export const detail = async ({ deps, org, pathParameters, claims }) => {
     status = 'read'
   }
 
+  if (claims?.email) await deps.db.markSeen({ org, threadId: root, email: claims.email })
+  const seen = await deps.db.listSeen({ org, threadId: root })
+
   const notes = await deps.db.listNotesByMessage({ org, messageId })
 
   // Label replies and notes with the writing admin's display name (resolved
   // here so historical rows that only stored an email also get a name).
   const names = await adminNameMap(deps, org)
-  const threadNamed = thread.map((m) =>
-    m.sentBy ? { ...m, sentByName: displayName(names, m.sentBy) } : m
-  )
+  // Who has seen an item: everyone who opened the thread since it was written,
+  // plus whoever wrote it.
+  const seenBy = (ts, author) => {
+    const list = seen
+      .filter((s) => s.seenAt >= (ts || ''))
+      .sort((a, b) => (a.seenAt < b.seenAt ? 1 : -1))
+    const me = author && String(author).toLowerCase()
+    if (me && !list.some((s) => s.email === me)) list.push({ email: me, seenAt: ts })
+    return list.map((s) => ({ email: s.email, name: displayName(names, s.email), seenAt: s.seenAt }))
+  }
+  const threadNamed = thread.map((m) => ({
+    ...m,
+    ...(m.sentBy && { sentByName: displayName(names, m.sentBy) }),
+    seenBy: seenBy(m.receivedAt, m.sentBy)
+  }))
   const notesNamed = notes.map((n) => ({
     ...n,
-    authorName: displayName(names, n.author)
+    authorName: displayName(names, n.author),
+    seenBy: seenBy(n.createdAt, n.author)
   }))
 
   return { ...message, status, thread: threadNamed, notes: notesNamed }
