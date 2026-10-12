@@ -306,6 +306,16 @@ describe('messages.detail', () => {
       expect(res.thread[0].seenBy).toEqual([])
     })
 
+    it('marks the open before reading the thread, so a reply landing mid-read stays unseen', async () => {
+      await seed()
+      await open('a@x.se')
+      const at = (pred) => deps.docClient.callLog.findIndex(pred)
+      const marked = at((c) => c.name === 'UpdateCommand' && c.input.Key.pk === 'acme:seen')
+      const snapshot = at((c) => c.name === 'QueryCommand' && c.input.ExpressionAttributeValues[':pk'] === 'acme:message')
+      expect(marked).toBeGreaterThan(-1)
+      expect(marked).toBeLessThan(snapshot)
+    })
+
     it('records nothing without a caller email', async () => {
       await seed()
       await detail({ deps, org: ORG, pathParameters: { messageId: 'm1' } })
@@ -1036,6 +1046,9 @@ describe('messages.addNote', () => {
       claims: { email: 'leader@acme.example' }
     })
     expect(res.data).toMatchObject({ author: 'leader@acme.example', authorName: 'Patricia Gullberg' })
+    expect(res.data.seenBy).toEqual([
+      { email: 'leader@acme.example', name: 'Patricia Gullberg', seenAt: res.data.createdAt }
+    ])
   })
 
   it('falls back to the email when no admin row exists', async () => {
