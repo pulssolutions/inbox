@@ -732,6 +732,69 @@ describe('messages.reply', () => {
     expect(res.data.subject).toBe('Anpassad')
   })
 
+  const LIMIT = 4 * 1024 * 1024
+  const file = (bytes, filename = 'a.bin') => ({
+    filename,
+    contentType: 'application/octet-stream',
+    contentBase64: Buffer.alloc(bytes, 1).toString('base64')
+  })
+  const replyWith = (attachments) =>
+    reply({
+      deps,
+      org: ORG,
+      pathParameters: { messageId: 'm1' },
+      body: { body: 'Se bilaga', attachments },
+      claims: CLAIMS
+    })
+
+  it('sends attachments and stores the sent MIME on the outbound row', async () => {
+    await deps.db.putMessage({ org: ORG, message: baseMessage() })
+    const res = await replyWith([file(LIMIT - 1, 'a.pdf'), file(1, 'b.txt')])
+    expect(res.statusCode).toBe(201)
+    const sent = deps.ses.replies[0].attachments
+    expect(sent.map((a) => [a.filename, a.content.length])).toEqual([
+      ['a.pdf', LIMIT - 1],
+      ['b.txt', 1]
+    ])
+    const id = res.data.messageId
+    const stored = await deps.db.getMessage({ org: ORG, messageId: id })
+    expect(stored).toMatchObject({ s3Bucket: 'inbox-bucket', s3Key: `outbound/${id}` })
+    expect(stored.attachments).toEqual([
+      { filename: 'a.pdf', contentType: 'application/octet-stream', size: LIMIT - 1 },
+      { filename: 'b.txt', contentType: 'application/octet-stream', size: 1 }
+    ])
+    expect(deps.mailStore.raw.get(`inbox-bucket|outbound/${id}`)).toBeDefined()
+
+    const d = await detail({ deps, org: ORG, pathParameters: { messageId: 'm1' }, claims: CLAIMS })
+    expect(d.thread.find((m) => m.messageId === id).attachments).toEqual(stored.attachments)
+
+    await deps.db.setMessageBox({ org: ORG, messageId: 'm1', box: 'archived' })
+    await remove({ deps, org: ORG, pathParameters: { messageId: 'm1' }, claims: CLAIMS })
+    expect(deps.mailStore.deleted).toContainEqual({ bucket: 'inbox-bucket', key: `outbound/${id}` })
+  })
+
+  it('rejects attachments over 4 MB in total without sending', async () => {
+    await deps.db.putMessage({ org: ORG, message: baseMessage() })
+    await expect(replyWith([file(LIMIT), file(1)])).rejects.toMatchObject({
+      name: 'ValidationError',
+      code: 'ATTACHMENTS_TOO_LARGE'
+    })
+    expect(deps.ses.replies).toHaveLength(0)
+  })
+
+  it.each([
+    ['not an array', 'x'],
+    ['missing filename', [{ contentType: 'text/plain', contentBase64: 'aGVq' }]],
+    ['bad content type', [{ filename: 'a', contentType: 'text/plain\r\nX: y', contentBase64: 'aGVq' }]],
+    ['bad base64', [{ filename: 'a', contentType: 'text/plain', contentBase64: 'not base64!' }]]
+  ])('rejects attachments that are %s', async (_, attachments) => {
+    await deps.db.putMessage({ org: ORG, message: baseMessage() })
+    await expect(replyWith(attachments)).rejects.toMatchObject({
+      name: 'ValidationError',
+      code: 'ATTACHMENTS_INVALID'
+    })
+  })
+
   it('rejects an empty reply body', async () => {
     await deps.db.putMessage({ org: ORG, message: baseMessage() })
     await expect(

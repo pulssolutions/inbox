@@ -126,7 +126,18 @@ export class Ses {
 
   // Build a multipart/alternative raw MIME message (text + themed html) and
   // send it via SendRawEmail (the only way to set threading headers + html).
-  async _sendRaw({ from, to, subject, text, html, extraHeaders = [] }) {
+  // With attachments the alternative part is nested in a multipart/mixed.
+  // `store` receives the exact bytes before they are sent.
+  async _sendRaw({
+    from,
+    to,
+    subject,
+    text,
+    html,
+    extraHeaders = [],
+    attachments = [],
+    store
+  }) {
     const boundary = `==_puls_${randomBytes(12).toString('hex')}`
     const headers = [
       `From: ${from}`,
@@ -134,10 +145,10 @@ export class Ses {
       `Reply-To: ${from}`,
       `Subject: ${encodeHeaderValue(subject)}`,
       'MIME-Version: 1.0',
-      ...extraHeaders,
-      `Content-Type: multipart/alternative; boundary="${boundary}"`
+      ...extraHeaders
     ]
-    const body = [
+    const alternativeType = `multipart/alternative; boundary="${boundary}"`
+    let body = [
       `--${boundary}`,
       'Content-Type: text/plain; charset=utf-8',
       'Content-Transfer-Encoding: 8bit',
@@ -151,13 +162,40 @@ export class Ses {
       `--${boundary}--`,
       ''
     ].join('\r\n')
+    let contentType = alternativeType
+    if (attachments.length) {
+      const mixed = `==_puls_${randomBytes(12).toString('hex')}`
+      contentType = `multipart/mixed; boundary="${mixed}"`
+      body = [
+        `--${mixed}`,
+        `Content-Type: ${alternativeType}`,
+        '',
+        body,
+        ...attachments.map((a) => {
+          const name = `"${encodeHeaderValue(a.filename.replace(/["\\\r\n]/g, ''))}"`
+          return [
+            `--${mixed}`,
+            `Content-Type: ${a.contentType}; name=${name}`,
+            'Content-Transfer-Encoding: base64',
+            `Content-Disposition: attachment; filename=${name}`,
+            '',
+            a.content.toString('base64').replace(/.{76}/g, '$&\r\n'),
+            ''
+          ].join('\r\n')
+        }),
+        `--${mixed}--`,
+        ''
+      ].join('\r\n')
+    }
+    headers.push(`Content-Type: ${contentType}`)
 
-    const raw = `${headers.join('\r\n')}\r\n\r\n${body}`
+    const raw = Buffer.from(`${headers.join('\r\n')}\r\n\r\n${body}`, 'utf8')
+    if (store) await store(raw)
     return this.client.send(
       new SendRawEmailCommand({
         Source: bareAddress(from),
         Destinations: [bareAddress(to)],
-        RawMessage: { Data: Buffer.from(raw, 'utf8') }
+        RawMessage: { Data: raw }
       })
     )
   }
@@ -173,7 +211,9 @@ export class Ses {
     fromName,
     fromAddress,
     orgName: footerOrgName,
-    website
+    website,
+    attachments,
+    store
   }) {
     // Default to the configured sender; callers pass a category alias
     // (e.g. kurser@example.com) so replies thread back to that inbox.
@@ -198,7 +238,9 @@ export class Ses {
       subject,
       text: body,
       html,
-      extraHeaders
+      extraHeaders,
+      attachments,
+      store
     })
   }
 

@@ -102,7 +102,7 @@ const decodeClaims = (auth) => {
 // ---- Express ----------------------------------------------------------
 
 const server = express()
-server.use(express.text({ type: '*/*' }))
+server.use(express.text({ type: '*/*', limit: '6mb' }))
 
 // In production API Gateway answers CORS preflight; there is no OPTIONS route
 // in the handler, so locally the browser's preflight 404s and every request

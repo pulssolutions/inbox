@@ -209,7 +209,12 @@
         </button>
       </div>
 
-      <div class="composer" :class="{ 'composer-open': composerOpen }">
+      <div
+        class="composer"
+        :class="{ 'composer-open': composerOpen }"
+        @dragover.prevent
+        @drop.prevent="addFiles($event.dataTransfer.files)"
+      >
         <div class="composer-mobile-bar d-md-none">
           <span class="topbar-spacer" />
           <button type="button" class="btn btn-ghost btn-sm" data-testid="composer-close" @click="composerOpen = false">
@@ -239,10 +244,36 @@
               : `Svara ${nameOf(message.from)}…`
           "
         />
+        <div v-if="mode === 'reply' && files.length" class="attachments">
+          <span v-for="(f, i) in files" :key="i" class="attachment" data-testid="attached-file">
+            <span class="attachment-name">{{ f.name }}</span>
+            <span class="attachment-meta">{{ formatBytes(f.size) }}</span>
+            <button
+              type="button"
+              class="btn-close"
+              :aria-label="`Ta bort ${f.name}`"
+              data-testid="remove-file"
+              @click="files.splice(i, 1)"
+            />
+          </span>
+          <span data-testid="attach-total" :class="tooLarge ? 'text-danger' : 'muted'" role="status">
+            {{ formatBytes(totalBytes) || '0 B' }} / 4 MB
+          </span>
+        </div>
         <p v-if="sendError" class="composer-error" data-testid="composer-error" role="alert">
           {{ sendError }}
         </p>
         <div class="composer-bar">
+          <label v-if="mode === 'reply'" class="btn btn-ghost btn-sm mb-0">
+            📎 Bifoga fil
+            <input
+              type="file"
+              multiple
+              hidden
+              data-testid="attach-input"
+              @change="addFiles($event.target.files), ($event.target.value = '')"
+            />
+          </label>
           <span class="topbar-spacer" />
           <button
             v-if="mode === 'note'"
@@ -259,7 +290,7 @@
               type="button"
               class="btn btn-primary btn-sm"
               data-testid="send-reply"
-              :disabled="!draft.trim() || replying"
+              :disabled="!draft.trim() || replying || tooLarge"
               @click="send"
             >
               {{ replying ? 'Skickar…' : closeAfter ? 'Skicka och stäng' : 'Skicka och lämna öppen' }}
@@ -268,7 +299,7 @@
               type="button"
               class="btn btn-primary btn-sm split-caret"
               data-testid="send-menu-toggle"
-              :disabled="replying"
+              :disabled="replying || tooLarge"
               :aria-expanded="menuOpen"
               aria-haspopup="menu"
               aria-label="Fler alternativ för att skicka"
@@ -399,6 +430,24 @@ const menuOpen = ref(false)
 const composerOpen = ref(false) // mobile: composer hidden until opened
 const confirmOpen = ref(false) // "Skicka och stäng" confirmation dialog
 const sendError = ref('')
+const files = ref([])
+// Raw bytes per reply; the API enforces the same cap.
+const ATTACHMENTS_MAX_BYTES = 4 * 1024 * 1024
+const totalBytes = computed(() => files.value.reduce((n, f) => n + f.size, 0))
+const tooLarge = computed(() => totalBytes.value > ATTACHMENTS_MAX_BYTES)
+// Dropping a file is a reply action, whichever tab was open.
+const addFiles = (list) => {
+  if (!list?.length) return
+  mode.value = 'reply'
+  files.value.push(...list)
+}
+const base64Of = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result.split(',')[1])
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
 
 watch(
   () => props.message?.messageId,
@@ -409,6 +458,7 @@ watch(
     composerOpen.value = false
     confirmOpen.value = false
     sendError.value = ''
+    files.value = []
   }
 )
 
@@ -470,7 +520,7 @@ const send = () => {
   doSend()
 }
 
-const doSend = () => {
+const doSend = async () => {
   const text = draft.value.trim()
   if (!text) return
   menuOpen.value = false
@@ -482,6 +532,7 @@ const doSend = () => {
   const done = (ok, message) => {
     if (ok) {
       draft.value = ''
+      files.value = []
       composerOpen.value = false
       return
     }
@@ -491,7 +542,14 @@ const doSend = () => {
   if (mode.value === 'note') {
     emit('add-note', { text, done })
   } else {
-    emit('reply', { body: text, close: closeAfter.value, done })
+    const attachments = await Promise.all(
+      files.value.map(async (f) => ({
+        filename: f.name,
+        contentType: f.type || 'application/octet-stream',
+        contentBase64: await base64Of(f)
+      }))
+    )
+    emit('reply', { body: text, close: closeAfter.value, attachments, done })
   }
 }
 

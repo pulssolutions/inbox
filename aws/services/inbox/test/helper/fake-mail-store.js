@@ -1,10 +1,15 @@
 // In-memory stand-in for MailStore. Keyed by `${bucket}|${key}`.
 export class FakeMailStore {
   constructor() {
+    this.defaultBucket = 'inbox-bucket'
     this.parsed = new Map()
     this.raw = new Map()
     this.presigned = []
     this.deleted = []
+  }
+
+  async putRaw({ bucket, key, raw }) {
+    this.raw.set(`${bucket}|${key}`, raw.toString('utf8'))
   }
 
   async deleteRaw({ bucket, key }) {

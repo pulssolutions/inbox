@@ -213,11 +213,11 @@ const onBulk = async (patch) => {
 
 // done() tells the composer whether to clear the draft or keep it and show why
 // it failed - a rejected send must not silently swallow what the agent wrote.
-const onReply = async ({ body, close, done }) => {
+const onReply = async ({ body, close, attachments, done }) => {
   if (!store.current) return
   const id = store.current.messageId
   try {
-    await store.replyAction(id, { body })
+    await store.replyAction(id, { body, attachments })
   } catch (e) {
     done?.(false, e?.message)
     return

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import MessageReader from '@/components/MessageReader.vue'
 
@@ -252,6 +252,47 @@ describe('MessageReader', () => {
     await w.find('[data-testid="send-menu-toggle"]').trigger('click')
     await w.find('[data-testid="opt-open"]').trigger('click')
     expect(w.emitted('reply')[0][0]).toMatchObject({ body: 'Tack!', close: false })
+  })
+
+  const MB = 1024 * 1024
+  const fileOf = (name, bytes) => new File([new Uint8Array(bytes)], name, { type: 'text/plain' })
+  const pick = async (w, files) => {
+    const input = w.find('[data-testid="attach-input"]')
+    Object.defineProperty(input.element, 'files', { value: files, configurable: true })
+    await input.trigger('change')
+  }
+
+  it('picked and dropped files are listed with a running total, and can be removed', async () => {
+    const w = mount(MessageReader, { props: { message: message() } })
+    await pick(w, [fileOf('a.txt', 3)])
+    await w.find('.composer').trigger('drop', { dataTransfer: { files: [fileOf('b.txt', 2 * MB)] } })
+    expect(w.findAll('[data-testid="attached-file"]').map((f) => f.text())).toEqual([
+      expect.stringContaining('a.txt'),
+      expect.stringContaining('b.txt')
+    ])
+    expect(w.find('[data-testid="attach-total"]').text()).toBe('2,0 MB / 4 MB')
+    await w.findAll('[data-testid="remove-file"]')[1].trigger('click')
+    expect(w.find('[data-testid="attach-total"]').text()).toBe('3 B / 4 MB')
+  })
+
+  it('over 4 MB the total is an error and send is disabled', async () => {
+    const w = mount(MessageReader, { props: { message: message() } })
+    await w.find('[data-testid="reply-body"]').setValue('Tack!')
+    await pick(w, [fileOf('a.bin', 4 * MB), fileOf('b.bin', 1)])
+    expect(w.find('[data-testid="attach-total"]').classes()).toContain('text-danger')
+    expect(w.find('[data-testid="send-reply"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('sends the files base64-encoded with the reply', async () => {
+    const w = mount(MessageReader, { props: { message: message() } })
+    await w.find('[data-testid="reply-body"]').setValue('Tack!')
+    await pick(w, [new File(['hej'], 'a.txt', { type: 'text/plain' })])
+    await w.find('[data-testid="send-menu-toggle"]').trigger('click')
+    await w.find('[data-testid="opt-open"]').trigger('click')
+    await vi.waitFor(() => expect(w.emitted('reply')).toBeDefined())
+    expect(w.emitted('reply')[0][0].attachments).toEqual([
+      { filename: 'a.txt', contentType: 'text/plain', contentBase64: 'aGVq' }
+    ])
   })
 
   it('emits set-assignee from the assignee dropdown', async () => {

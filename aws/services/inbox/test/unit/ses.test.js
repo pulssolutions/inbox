@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { simpleParser } from 'mailparser'
 import { Ses, buildEmail } from '../../src/ses.js'
 
 const captureClient = () => ({
@@ -186,6 +187,57 @@ describe('Ses', () => {
       // member-facing: no dark header band; footer links the club name
       expect(raw).not.toContain('background:#1f2430')
       expect(raw).toContain('href="https://www.acme.example"')
+    })
+    it('without attachments keeps the plain multipart/alternative shape', async () => {
+      const client = captureClient()
+      const ses = new Ses({ client, fromAddress: 'support@acme.example' })
+      await ses.sendReply({ to: 'a@b.se', subject: 'Re', body: 'x', attachments: [] })
+      const raw = rawOf(client.commands[0])
+      expect(raw).not.toContain('multipart/mixed')
+      expect(raw.match(/^Content-Type: multipart\/alternative/m)).not.toBeNull()
+    })
+
+    it('with attachments sends multipart/mixed: the alternative part + one base64 part per file', async () => {
+      const client = captureClient()
+      const ses = new Ses({ client, fromAddress: 'support@acme.example' })
+      const big = Buffer.alloc(300, 7)
+      await ses.sendReply({
+        to: 'a@b.se',
+        subject: 'Re',
+        body: 'Se bilagor',
+        attachments: [
+          { filename: 'Lönebesked.pdf', contentType: 'application/pdf', content: big },
+          { filename: 'a.txt', contentType: 'text/plain', content: Buffer.from('hej') }
+        ]
+      })
+      const raw = rawOf(client.commands[0])
+      expect(raw).toMatch(/^Content-Type: multipart\/mixed/m)
+      expect(raw.split('\r\n').every((l) => l.length <= 998)).toBe(true)
+      const mail = await simpleParser(raw)
+      expect(mail.text.trim()).toBe('Se bilagor')
+      expect(mail.html).toContain('Se bilagor')
+      expect(mail.attachments.map((a) => [a.filename, a.contentType])).toEqual([
+        ['Lönebesked.pdf', 'application/pdf'],
+        ['a.txt', 'text/plain']
+      ])
+      expect(mail.attachments[0].content.equals(big)).toBe(true)
+      expect(mail.attachments[1].content.toString()).toBe('hej')
+    })
+
+    it('hands the raw MIME to store before sending', async () => {
+      const client = captureClient()
+      const ses = new Ses({ client, fromAddress: 'support@acme.example' })
+      let stored
+      await ses.sendReply({
+        to: 'a@b.se',
+        subject: 'Re',
+        body: 'x',
+        store: async (raw) => {
+          expect(client.commands).toHaveLength(0)
+          stored = raw
+        }
+      })
+      expect(stored.equals(Buffer.from(client.commands[0].input.RawMessage.Data))).toBe(true)
     })
   })
 
