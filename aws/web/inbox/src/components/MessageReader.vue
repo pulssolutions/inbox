@@ -144,7 +144,7 @@
               <div v-if="item.m.direction === 'outbound' && (item.m.attachments || []).length" class="attachments">
                 <!-- The sent MIME is not kept, so there is nothing to download. -->
                 <span v-for="(a, i) in item.m.attachments" :key="i" class="attachment" data-testid="sent-attachment">
-                  <span aria-hidden="true">📎</span>
+                  <PaperclipIcon />
                   <span class="attachment-name">{{ a.filename }}</span>
                   <span class="attachment-meta">{{ formatBytes(a.size) }}</span>
                 </span>
@@ -163,7 +163,7 @@
                   :title="`Hämta ${a.filename || 'bilaga'}`"
                   @click="$emit('download-attachment', { messageId: item.m.messageId, index: i, filename: a.filename })"
                 >
-                  <span aria-hidden="true">📎</span>
+                  <PaperclipIcon />
                   <span class="attachment-name">{{ a.filename || 'bilaga' }}</span>
                   <span class="attachment-meta">{{
                     attachmentBusy === `${item.m.messageId}:${i}` ? 'Hämtar…' : formatBytes(a.size)
@@ -275,11 +275,12 @@
           <button
             v-if="mode === 'reply'"
             type="button"
-            class="btn btn-ghost btn-sm"
+            class="btn btn-ghost btn-sm d-inline-flex align-items-center gap-1"
             data-testid="attach-button"
             @click="fileInput.click()"
           >
-            📎 Bifoga fil
+            <PaperclipIcon />
+            Bifoga fil
           </button>
           <input
             ref="fileInput"
@@ -517,6 +518,10 @@ const EyeIcon = () =>
   h('svg', { viewBox: '0 0 16 16', width: 16, height: 16, fill: 'currentColor', 'aria-hidden': 'true' }, [
     h('path', { d: 'M16 8s-3-5.5-8-5.5S0 8 0 8s3 5.5 8 5.5S16 8 16 8M1.173 8a13 13 0 0 1 1.66-2.043C4.12 4.668 5.88 3.5 8 3.5s3.879 1.168 5.168 2.457A13 13 0 0 1 14.828 8q-.086.13-.195.288c-.335.48-.83 1.12-1.465 1.755C11.879 11.332 10.119 12.5 8 12.5s-3.879-1.168-5.168-2.457A13 13 0 0 1 1.172 8z' }),
     h('path', { d: 'M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5M4.5 8a3.5 3.5 0 1 1 7 0 3.5 3.5 0 0 1-7 0' })
+  ])
+const PaperclipIcon = () =>
+  h('svg', { viewBox: '0 0 16 16', width: 16, height: 16, fill: 'currentColor', 'aria-hidden': 'true' }, [
+    h('path', { d: 'M4.5 3a2.5 2.5 0 0 1 5 0v9a1.5 1.5 0 0 1-3 0V5a.5.5 0 0 1 1 0v7a.5.5 0 0 0 1 0V3a1.5 1.5 0 1 0-3 0v9a2.5 2.5 0 0 0 5 0V5a.5.5 0 0 1 1 0v7a3.5 3.5 0 1 1-7 0z' })
   ])
 const initialsOf = initials
 

@@ -338,9 +338,12 @@ describe('MessageReader', () => {
     vi.unstubAllGlobals()
   })
 
-  it('the attach button is a focusable button', () => {
+  it('the attach button is a focusable button with a paperclip icon', () => {
     const w = mount(MessageReader, { props: { message: message() } })
-    expect(w.find('[data-testid="attach-button"]').element.tagName).toBe('BUTTON')
+    const btn = w.find('[data-testid="attach-button"]')
+    expect(btn.element.tagName).toBe('BUTTON')
+    expect(btn.text()).toBe('Bifoga fil')
+    expect(btn.find('svg[aria-hidden="true"]').exists()).toBe(true)
   })
 
   it('emits set-assignee from the assignee dropdown', async () => {
