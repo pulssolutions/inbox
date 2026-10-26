@@ -773,6 +773,13 @@ describe('messages.reply', () => {
     expect(deps.mailStore.deleted).toContainEqual({ bucket: 'inbox-bucket', key: `outbound/${id}` })
   })
 
+  it('treats attachments: null as no attachments', async () => {
+    await deps.db.putMessage({ org: ORG, message: baseMessage() })
+    const res = await replyWith(null)
+    expect(res.statusCode).toBe(201)
+    expect(deps.ses.replies[0].attachments).toEqual([])
+  })
+
   it('rejects attachments over 4 MB in total without sending', async () => {
     await deps.db.putMessage({ org: ORG, message: baseMessage() })
     await expect(replyWith([file(LIMIT), file(1)])).rejects.toMatchObject({

@@ -598,7 +598,7 @@ const REPLY_ATTACHMENTS_MAX_BYTES = 4 * 1024 * 1024
 const CONTENT_TYPE_RE = /^[\w.+-]+\/[\w.+-]+$/
 const BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/
 
-const replyAttachments = (list = []) => {
+const replyAttachments = (list) => {
   const valid =
     Array.isArray(list) &&
     list.every(
@@ -630,7 +630,7 @@ export const reply = async ({ deps, org, pathParameters, body, claims }) => {
   if (!body || typeof body.body !== 'string' || body.body.trim().length === 0) {
     throw new ValidationError('REPLY_BODY_REQUIRED', 'Reply body required')
   }
-  const attachments = replyAttachments(body.attachments)
+  const attachments = replyAttachments(body.attachments ?? [])
 
   const subject = body.subject || `Re: ${original.subject || ''}`
   const to = await replyRecipient(deps, original)

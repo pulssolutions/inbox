@@ -290,7 +290,7 @@
               type="button"
               class="btn btn-primary btn-sm"
               data-testid="send-reply"
-              :disabled="!draft.trim() || replying || tooLarge"
+              :disabled="!draft.trim() || replying || reading || tooLarge"
               @click="send"
             >
               {{ replying ? 'Skickar…' : closeAfter ? 'Skicka och stäng' : 'Skicka och lämna öppen' }}
@@ -354,7 +354,7 @@
             type="button"
             class="btn btn-primary btn-sm"
             data-testid="confirm-send-close"
-            :disabled="replying"
+            :disabled="replying || reading"
             @click="doSend"
           >
             Skicka och stäng
@@ -431,6 +431,7 @@ const composerOpen = ref(false) // mobile: composer hidden until opened
 const confirmOpen = ref(false) // "Skicka och stäng" confirmation dialog
 const sendError = ref('')
 const files = ref([])
+const reading = ref(false) // files are being encoded; replying is not yet true
 // Raw bytes per reply; the API enforces the same cap.
 const ATTACHMENTS_MAX_BYTES = 4 * 1024 * 1024
 const totalBytes = computed(() => files.value.reduce((n, f) => n + f.size, 0))
@@ -522,7 +523,7 @@ const send = () => {
 
 const doSend = async () => {
   const text = draft.value.trim()
-  if (!text) return
+  if (!text || reading.value) return
   menuOpen.value = false
   confirmOpen.value = false
   sendError.value = ''
@@ -542,13 +543,17 @@ const doSend = async () => {
   if (mode.value === 'note') {
     emit('add-note', { text, done })
   } else {
-    const attachments = await Promise.all(
-      files.value.map(async (f) => ({
-        filename: f.name,
-        contentType: f.type || 'application/octet-stream',
-        contentBase64: await base64Of(f)
-      }))
-    )
+    let attachments = []
+    if (files.value.length) {
+      reading.value = true
+      attachments = await Promise.all(
+        files.value.map(async (f) => ({
+          filename: f.name,
+          contentType: f.type || 'application/octet-stream',
+          contentBase64: await base64Of(f)
+        }))
+      ).finally(() => (reading.value = false))
+    }
     emit('reply', { body: text, close: closeAfter.value, attachments, done })
   }
 }

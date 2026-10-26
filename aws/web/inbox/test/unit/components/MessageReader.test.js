@@ -295,6 +295,18 @@ describe('MessageReader', () => {
     ])
   })
 
+  it('a second click while files are read does not send twice', async () => {
+    const w = mount(MessageReader, { props: { message: message() } })
+    await w.find('[data-testid="reply-body"]').setValue('Tack!')
+    await pick(w, [new File(['hej'], 'a.txt', { type: 'text/plain' })])
+    await w.find('[data-testid="send-menu-toggle"]').trigger('click')
+    await w.find('[data-testid="opt-open"]').trigger('click')
+    await w.find('[data-testid="send-reply"]').trigger('click')
+    await vi.waitFor(() => expect(w.emitted('reply')).toBeDefined())
+    await new Promise((r) => setTimeout(r, 20))
+    expect(w.emitted('reply')).toHaveLength(1)
+  })
+
   it('emits set-assignee from the assignee dropdown', async () => {
     const w = mount(MessageReader, {
       props: {
