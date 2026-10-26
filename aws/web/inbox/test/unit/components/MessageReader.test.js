@@ -271,6 +271,10 @@ describe('MessageReader', () => {
       expect.stringContaining('b.txt')
     ])
     expect(w.find('[data-testid="attach-total"]').text()).toBe('2,0 MB / 4 MB')
+    // Files sit at the left of the send bar, before the attach button.
+    const bar = w.find('.composer-bar').html()
+    expect(bar.indexOf('attached-file')).toBeGreaterThan(-1)
+    expect(bar.indexOf('attached-file')).toBeLessThan(bar.indexOf('attach-button'))
     await w.findAll('[data-testid="remove-file"]')[1].trigger('click')
     expect(w.find('[data-testid="attach-total"]').text()).toBe('3 B / 4 MB')
   })

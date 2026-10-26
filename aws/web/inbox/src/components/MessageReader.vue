@@ -252,93 +252,94 @@
               : `Svara ${nameOf(message.from)}…`
           "
         />
-        <div v-if="mode === 'reply' && files.length" class="attachments">
-          <span v-for="(f, i) in files" :key="i" class="attachment" data-testid="attached-file">
-            <span class="attachment-name">{{ f.name }}</span>
-            <span class="attachment-meta">{{ formatBytes(f.size) }}</span>
-            <button
-              type="button"
-              class="btn-close"
-              :aria-label="`Ta bort ${f.name}`"
-              data-testid="remove-file"
-              @click="files.splice(i, 1)"
-            />
-          </span>
-          <span data-testid="attach-total" :class="tooLarge ? 'text-danger' : 'muted'" role="status">
-            {{ formatBytes(totalBytes) || '0 B' }} / 4 MB
-          </span>
-        </div>
         <p v-if="sendError" class="composer-error" data-testid="composer-error" role="alert">
           {{ sendError }}
         </p>
         <div class="composer-bar">
-          <button
-            v-if="mode === 'reply'"
-            type="button"
-            class="btn btn-ghost btn-sm d-inline-flex align-items-center gap-1"
-            data-testid="attach-button"
-            @click="fileInput.click()"
-          >
-            <PaperclipIcon />
-            Bifoga fil
-          </button>
-          <input
-            ref="fileInput"
-            type="file"
-            multiple
-            hidden
-            data-testid="attach-input"
-            @change="addFiles($event.target.files), ($event.target.value = '')"
-          />
-          <span class="topbar-spacer" />
-          <button
-            v-if="mode === 'note'"
-            type="button"
-            class="btn btn-primary btn-sm"
-            data-testid="save-note"
-            :disabled="!draft.trim() || replying"
-            @click="send"
-          >
-            {{ replying ? 'Sparar…' : 'Spara anteckning' }}
-          </button>
-          <div v-else class="split-btn">
+          <div v-if="mode === 'reply' && files.length" class="attachments composer-files">
+            <span v-for="(f, i) in files" :key="i" class="attachment" data-testid="attached-file">
+              <span class="attachment-name" :title="f.name">{{ f.name }}</span>
+              <span class="attachment-meta">{{ formatBytes(f.size) }}</span>
+              <button
+                type="button"
+                class="btn-close"
+                :aria-label="`Ta bort ${f.name}`"
+                data-testid="remove-file"
+                @click="files.splice(i, 1)"
+              />
+            </span>
+            <span data-testid="attach-total" :class="tooLarge ? 'text-danger' : 'muted'" role="status">
+              {{ formatBytes(totalBytes) || '0 B' }} / 4 MB
+            </span>
+          </div>
+          <div class="composer-actions">
             <button
+              v-if="mode === 'reply'"
+              type="button"
+              class="btn btn-ghost btn-sm d-inline-flex align-items-center gap-1"
+              data-testid="attach-button"
+              @click="fileInput.click()"
+            >
+              <PaperclipIcon />
+              Bifoga fil
+            </button>
+            <input
+              ref="fileInput"
+              type="file"
+              multiple
+              hidden
+              data-testid="attach-input"
+              @change="addFiles($event.target.files), ($event.target.value = '')"
+            />
+            <button
+              v-if="mode === 'note'"
               type="button"
               class="btn btn-primary btn-sm"
-              data-testid="send-reply"
-              :disabled="!draft.trim() || replying || reading || tooLarge"
+              data-testid="save-note"
+              :disabled="!draft.trim() || replying"
               @click="send"
             >
-              {{ replying ? 'Skickar…' : closeAfter ? 'Skicka och stäng' : 'Skicka och lämna öppen' }}
+              {{ replying ? 'Sparar…' : 'Spara anteckning' }}
             </button>
-            <button
-              type="button"
-              class="btn btn-primary btn-sm split-caret"
-              data-testid="send-menu-toggle"
-              :disabled="replying || tooLarge"
-              :aria-expanded="menuOpen"
-              aria-haspopup="menu"
-              aria-label="Fler alternativ för att skicka"
-              @click="menuOpen = !menuOpen"
-            >
-              <svg viewBox="0 0 12 12" aria-hidden="true" focusable="false">
-                <path
-                  d="M3 4.75 L6 7.75 L9 4.75"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
-            </button>
-            <div v-if="menuOpen" class="send-menu">
-              <button type="button" class="menu-item" data-testid="opt-close" @click="choose(true)">
-                Skicka och stäng
+            <div v-else class="split-btn">
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                data-testid="send-reply"
+                :disabled="!draft.trim() || replying || reading || tooLarge"
+                @click="send"
+              >
+                {{ replying ? 'Skickar…' : closeAfter ? 'Skicka och stäng' : 'Skicka och lämna öppen' }}
               </button>
-              <button type="button" class="menu-item" data-testid="opt-open" @click="choose(false)">
-                Skicka och lämna öppen
+              <button
+                type="button"
+                class="btn btn-primary btn-sm split-caret"
+                data-testid="send-menu-toggle"
+                :disabled="replying || tooLarge"
+                :aria-expanded="menuOpen"
+                aria-haspopup="menu"
+                aria-label="Fler alternativ för att skicka"
+                @click="menuOpen = !menuOpen"
+              >
+                <svg viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+                  <path
+                    d="M3 4.75 L6 7.75 L9 4.75"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
               </button>
+              <div v-if="menuOpen" class="send-menu">
+                <button type="button" class="menu-item" data-testid="opt-close" @click="choose(true)">
+                  Skicka och stäng
+                </button>
+                <button type="button" class="menu-item" data-testid="opt-open" @click="choose(false)">
+                  Skicka och lämna öppen
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -595,6 +596,28 @@ const choose = (close) => {
 </script>
 
 <style scoped>
+/* Files share the send bar; below ~12rem they push the buttons to a new line. */
+.composer-files {
+  flex: 1 1 12rem;
+  min-width: 0;
+  margin-top: 0;
+  align-items: center;
+}
+.composer-files .attachment {
+  min-width: 0;
+  max-width: 100%;
+}
+.composer-files .attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-left: auto;
+}
 .seen-eye {
   display: inline-flex;
   color: var(--fg-3);
