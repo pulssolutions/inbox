@@ -73,12 +73,16 @@ export const buildEmail = ({
   // A reply is a person writing, so it reads like one: no card, no padding. The
   // card also left a wide blank margin once a client quoted it in a reply.
   if (!showHeader) {
-    const imagesHtml = images
-      .map(
-        (i) =>
-          `<img src="cid:${i.cid}" alt="${escapeHtml(i.filename)}" style="display:block;max-height:300px;max-width:100%;height:auto;width:auto;margin:0 0 12px">`
-      )
-      .join('')
+    // One line per image (and before the footer) keeps the 8bit html part
+    // under the 998-character line limit however many images there are.
+    const imagesHtml = images.length
+      ? images
+          .map(
+            (i) =>
+              `\r\n<img src="cid:${i.cid}" alt="${escapeHtml(i.filename)}" style="display:block;max-height:300px;max-width:100%;height:auto;width:auto;margin:0 0 12px">`
+          )
+          .join('') + '\r\n'
+      : ''
     const html = `<!doctype html><html><body style="margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">${headingHtml}${paraHtml}${ctaHtml}${imagesHtml}<p style="margin:18px 0 0;color:#8a909c;font-size:12px">${footerInner}</p></body></html>`
     return { html, text }
   }

@@ -264,6 +264,13 @@ describe('Ses', () => {
       expect(files.map((a) => a.filename)).toEqual(['a.pdf'])
     })
 
+    it('keeps every line within 998 characters with many inline images', async () => {
+      const images = Array.from({ length: 8 }, (_, i) => png(`bild-${i}.png`))
+      const { raw, mail } = await sendWith(images)
+      expect(raw.split('\r\n').every((l) => l.length <= 998)).toBe(true)
+      expect(mail.attachments.filter((a) => mail.html.includes(`cid:${a.cid}`))).toHaveLength(8)
+    })
+
     it('never inlines svg', async () => {
       const { mail } = await sendWith([
         { filename: 'x.svg', contentType: 'image/svg+xml', content: Buffer.from('<svg/>') }
