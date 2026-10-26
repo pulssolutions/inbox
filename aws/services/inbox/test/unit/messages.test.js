@@ -747,7 +747,7 @@ describe('messages.reply', () => {
       claims: CLAIMS
     })
 
-  it('sends attachments and stores the sent MIME on the outbound row', async () => {
+  it('sends attachments and lists them on the outbound row without storing MIME', async () => {
     await deps.db.putMessage({ org: ORG, message: baseMessage() })
     const res = await replyWith([file(LIMIT - 1, 'a.pdf'), file(1, 'b.txt')])
     expect(res.statusCode).toBe(201)
@@ -758,19 +758,15 @@ describe('messages.reply', () => {
     ])
     const id = res.data.messageId
     const stored = await deps.db.getMessage({ org: ORG, messageId: id })
-    expect(stored).toMatchObject({ s3Bucket: 'inbox-bucket', s3Key: `outbound/${id}` })
+    expect(stored.s3Key).toBeUndefined()
     expect(stored.attachments).toEqual([
       { filename: 'a.pdf', contentType: 'application/octet-stream', size: LIMIT - 1 },
       { filename: 'b.txt', contentType: 'application/octet-stream', size: 1 }
     ])
-    expect(deps.mailStore.raw.get(`inbox-bucket|outbound/${id}`)).toBeDefined()
+    expect(deps.mailStore.raw.size).toBe(0)
 
     const d = await detail({ deps, org: ORG, pathParameters: { messageId: 'm1' }, claims: CLAIMS })
     expect(d.thread.find((m) => m.messageId === id).attachments).toEqual(stored.attachments)
-
-    await deps.db.setMessageBox({ org: ORG, messageId: 'm1', box: 'archived' })
-    await remove({ deps, org: ORG, pathParameters: { messageId: 'm1' }, claims: CLAIMS })
-    expect(deps.mailStore.deleted).toContainEqual({ bucket: 'inbox-bucket', key: `outbound/${id}` })
   })
 
   it('treats attachments: null as no attachments', async () => {

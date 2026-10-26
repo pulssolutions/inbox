@@ -141,7 +141,15 @@
               <!-- eslint-disable-next-line vue/no-v-html -- sanitized via DOMPurify -->
               <div v-if="htmlOf(item.m)" class="body-html" v-html="htmlOf(item.m)" />
               <div v-else class="body-text">{{ item.m.text }}</div>
-              <div v-if="(item.m.attachments || []).length" class="attachments">
+              <div v-if="item.m.direction === 'outbound' && (item.m.attachments || []).length" class="attachments">
+                <!-- The sent MIME is not kept, so there is nothing to download. -->
+                <span v-for="(a, i) in item.m.attachments" :key="i" class="attachment" data-testid="sent-attachment">
+                  <span aria-hidden="true">📎</span>
+                  <span class="attachment-name">{{ a.filename }}</span>
+                  <span class="attachment-meta">{{ formatBytes(a.size) }}</span>
+                </span>
+              </div>
+              <div v-else-if="(item.m.attachments || []).length" class="attachments">
                 <!-- A real button, not a chip: the file has to be fetched with the
                      admin's bearer token and rebuilt client-side, so there's no
                      href to hand the browser. -->

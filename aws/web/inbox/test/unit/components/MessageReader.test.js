@@ -436,6 +436,28 @@ describe('MessageReader', () => {
     ])
   })
 
+  it('lists sent attachments with no download action', () => {
+    const w = mount(MessageReader, {
+      props: {
+        message: message({
+          thread: [
+            threadMsg(),
+            threadMsg({
+              messageId: 'r1',
+              direction: 'outbound',
+              attachments: [{ filename: 'plan.pdf', contentType: 'application/pdf', size: 2048 }]
+            })
+          ]
+        })
+      }
+    })
+    const sent = w.find('[data-testid="sent-attachment"]')
+    expect(sent.text()).toContain('plan.pdf')
+    expect(sent.text()).toContain('2 kB')
+    expect(sent.element.tagName).not.toBe('BUTTON')
+    expect(w.findAll('[data-testid="attachment"]')).toHaveLength(0)
+  })
+
   it('an attachment with no filename still renders something tappable', () => {
     const w = mount(MessageReader, {
       props: {

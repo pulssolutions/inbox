@@ -12,7 +12,6 @@ export class FakeSes {
 
   async sendReply(args) {
     this.replies.push(args)
-    if (args.store) await args.store(Buffer.from('fake raw'))
     return { MessageId: `fake-reply-${this.replies.length}` }
   }
 

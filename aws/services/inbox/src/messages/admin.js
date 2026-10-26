@@ -32,8 +32,7 @@ const requireMessage = async (deps, org, messageId, claims) => {
 }
 
 // Raw MIME for the debug panel. Returns the raw message as text so the client
-// can download it as an .eml file. Replies sent before outbound MIME was stored
-// have no S3 object.
+// can download it as an .eml file. Outbound rows have no S3 object.
 export const raw = async ({ deps, org, pathParameters, claims }) => {
   const messageId = pathParameters?.messageId
   const message = await requireMessage(deps, org, messageId, claims)
@@ -656,12 +655,6 @@ export const reply = async ({ deps, org, pathParameters, body, claims }) => {
   // sending domain, so it works per-org without extra config).
   const website = senderDomain ? `https://www.${senderDomain}` : undefined
 
-  // The sent MIME is stored before sending, so attachment download and thread
-  // delete find it like any inbound message.
-  const replyId = generateId()
-  const s3Bucket = deps.mailStore.defaultBucket
-  const s3Key = `outbound/${replyId}`
-
   // Thread the outgoing mail to the original's real RFC Message-ID so the
   // recipient's client builds a proper References chain.
   const sent = await deps.ses.sendReply({
@@ -673,8 +666,7 @@ export const reply = async ({ deps, org, pathParameters, body, claims }) => {
     fromAddress,
     orgName: clubName,
     website,
-    attachments,
-    store: (raw) => deps.mailStore.putRaw({ bucket: s3Bucket, key: s3Key, raw })
+    attachments
   })
 
   // Record SES's assigned Message-ID so a reply to THIS mail (In-Reply-To /
@@ -685,7 +677,7 @@ export const reply = async ({ deps, org, pathParameters, body, claims }) => {
     : undefined
 
   const outbound = {
-    messageId: replyId,
+    messageId: generateId(),
     category: original.category,
     from: fromHeader,
     to: [to],
@@ -696,8 +688,7 @@ export const reply = async ({ deps, org, pathParameters, body, claims }) => {
     inReplyTo: original.messageId,
     threadId: original.threadId || original.messageId,
     bodyText: body.body,
-    s3Bucket,
-    s3Key,
+    // Listed in the thread, not downloadable: the sent MIME is not kept.
     ...(attachments.length && {
       attachments: attachments.map((a) => ({
         filename: a.filename,

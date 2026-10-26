@@ -223,22 +223,6 @@ describe('Ses', () => {
       expect(mail.attachments[0].content.equals(big)).toBe(true)
       expect(mail.attachments[1].content.toString()).toBe('hej')
     })
-
-    it('hands the raw MIME to store before sending', async () => {
-      const client = captureClient()
-      const ses = new Ses({ client, fromAddress: 'support@acme.example' })
-      let stored
-      await ses.sendReply({
-        to: 'a@b.se',
-        subject: 'Re',
-        body: 'x',
-        store: async (raw) => {
-          expect(client.commands).toHaveLength(0)
-          stored = raw
-        }
-      })
-      expect(stored.equals(Buffer.from(client.commands[0].input.RawMessage.Data))).toBe(true)
-    })
   })
 
   describe('sendNotification', () => {

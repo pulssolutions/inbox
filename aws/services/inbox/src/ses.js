@@ -127,7 +127,6 @@ export class Ses {
   // Build a multipart/alternative raw MIME message (text + themed html) and
   // send it via SendRawEmail (the only way to set threading headers + html).
   // With attachments the alternative part is nested in a multipart/mixed.
-  // `store` receives the exact bytes before they are sent.
   async _sendRaw({
     from,
     to,
@@ -135,8 +134,7 @@ export class Ses {
     text,
     html,
     extraHeaders = [],
-    attachments = [],
-    store
+    attachments = []
   }) {
     const boundary = `==_puls_${randomBytes(12).toString('hex')}`
     const headers = [
@@ -190,7 +188,6 @@ export class Ses {
     headers.push(`Content-Type: ${contentType}`)
 
     const raw = Buffer.from(`${headers.join('\r\n')}\r\n\r\n${body}`, 'utf8')
-    if (store) await store(raw)
     return this.client.send(
       new SendRawEmailCommand({
         Source: bareAddress(from),
@@ -212,8 +209,7 @@ export class Ses {
     fromAddress,
     orgName: footerOrgName,
     website,
-    attachments,
-    store
+    attachments
   }) {
     // Default to the configured sender; callers pass a category alias
     // (e.g. kurser@example.com) so replies thread back to that inbox.
@@ -239,8 +235,7 @@ export class Ses {
       text: body,
       html,
       extraHeaders,
-      attachments,
-      store
+      attachments
     })
   }
 

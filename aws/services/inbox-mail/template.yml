@@ -172,12 +172,6 @@ Resources:
             ExpirationInDays: !Ref InboundObjectExpiryDays
             NoncurrentVersionExpiration:
               NoncurrentDays: 35
-          - Id: ExpireSentEmail
-            Status: Enabled
-            Prefix: outbound/
-            ExpirationInDays: !Ref InboundObjectExpiryDays
-            NoncurrentVersionExpiration:
-              NoncurrentDays: 35
           - Id: RemoveExpiredDeleteMarkers
             Status: Enabled
             ExpiredObjectDeleteMarker: true
