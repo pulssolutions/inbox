@@ -268,7 +268,7 @@
                 @click="files.splice(i, 1)"
               />
             </span>
-            <span data-testid="attach-total" :class="tooLarge ? 'text-danger' : 'muted'" role="status">
+            <span data-testid="attach-total" class="text-nowrap" :class="tooLarge ? 'text-danger' : 'muted'" role="status">
               {{ formatBytes(totalBytes) || '0 B' }} / 4 MB
             </span>
           </div>
@@ -276,7 +276,7 @@
             <button
               v-if="mode === 'reply'"
               type="button"
-              class="btn btn-ghost btn-sm d-inline-flex align-items-center gap-1"
+              class="btn btn-ghost d-inline-flex align-items-center gap-1"
               data-testid="attach-button"
               @click="fileInput.click()"
             >
@@ -294,7 +294,7 @@
             <button
               v-if="mode === 'note'"
               type="button"
-              class="btn btn-primary btn-sm"
+              class="btn btn-primary"
               data-testid="save-note"
               :disabled="!draft.trim() || replying"
               @click="send"
@@ -304,7 +304,7 @@
             <div v-else class="split-btn">
               <button
                 type="button"
-                class="btn btn-primary btn-sm"
+                class="btn btn-primary"
                 data-testid="send-reply"
                 :disabled="!draft.trim() || replying || reading || tooLarge"
                 @click="send"
@@ -313,7 +313,7 @@
               </button>
               <button
                 type="button"
-                class="btn btn-primary btn-sm split-caret"
+                class="btn btn-primary split-caret"
                 data-testid="send-menu-toggle"
                 :disabled="replying || tooLarge"
                 :aria-expanded="menuOpen"
@@ -603,11 +603,17 @@ const choose = (close) => {
   margin-top: 0;
   align-items: center;
 }
+/* Chips and buttons share one 40px row, so attaching a file or switching tabs
+   never changes the bar's height. */
 .composer-files .attachment {
   min-width: 0;
   max-width: 100%;
+  min-height: 0;
+  height: 40px;
+  padding-block: 0;
 }
 .composer-files .attachment-name {
+  max-width: 7rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -617,6 +623,11 @@ const choose = (close) => {
   gap: 8px;
   align-items: center;
   margin-left: auto;
+  height: 40px;
+}
+.composer-actions .btn {
+  height: 40px;
+  padding-block: 0;
 }
 .seen-eye {
   display: inline-flex;
@@ -655,8 +666,8 @@ const choose = (close) => {
   display: inline-flex;
 }
 .split-caret {
-  /* Vertical padding stays inherited from .btn-sm so both halves are exactly
-     the same height; only the horizontal padding is set here. */
+  /* Height comes from .composer-actions .btn, so both halves match; only the
+     horizontal padding is set here. */
   padding-inline: 9px;
   /* Seam derived from the button's foreground, so it reads on the accent fill
      in both themes rather than being a fixed black mix. */
