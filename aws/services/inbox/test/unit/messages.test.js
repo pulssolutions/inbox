@@ -789,7 +789,9 @@ describe('messages.reply', () => {
     ['not an array', 'x'],
     ['missing filename', [{ contentType: 'text/plain', contentBase64: 'aGVq' }]],
     ['bad content type', [{ filename: 'a', contentType: 'text/plain\r\nX: y', contentBase64: 'aGVq' }]],
-    ['bad base64', [{ filename: 'a', contentType: 'text/plain', contentBase64: 'not base64!' }]]
+    ['bad base64', [{ filename: 'a', contentType: 'text/plain', contentBase64: 'not base64!' }]],
+    ['truncated base64', [{ filename: 'a', contentType: 'text/plain', contentBase64: 'aGVqZ' }]],
+    ['a non-string content type', [{ filename: 'a', contentType: ['text/plain'], contentBase64: 'aGVq' }]]
   ])('rejects attachments that are %s', async (_, attachments) => {
     await deps.db.putMessage({ org: ORG, message: baseMessage() })
     await expect(replyWith(attachments)).rejects.toMatchObject({

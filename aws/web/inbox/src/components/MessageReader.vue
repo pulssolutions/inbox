@@ -272,16 +272,23 @@
           {{ sendError }}
         </p>
         <div class="composer-bar">
-          <label v-if="mode === 'reply'" class="btn btn-ghost btn-sm mb-0">
+          <button
+            v-if="mode === 'reply'"
+            type="button"
+            class="btn btn-ghost btn-sm"
+            data-testid="attach-button"
+            @click="fileInput.click()"
+          >
             📎 Bifoga fil
-            <input
-              type="file"
-              multiple
-              hidden
-              data-testid="attach-input"
-              @change="addFiles($event.target.files), ($event.target.value = '')"
-            />
-          </label>
+          </button>
+          <input
+            ref="fileInput"
+            type="file"
+            multiple
+            hidden
+            data-testid="attach-input"
+            @change="addFiles($event.target.files), ($event.target.value = '')"
+          />
           <span class="topbar-spacer" />
           <button
             v-if="mode === 'note'"
@@ -439,6 +446,7 @@ const composerOpen = ref(false) // mobile: composer hidden until opened
 const confirmOpen = ref(false) // "Skicka och stäng" confirmation dialog
 const sendError = ref('')
 const files = ref([])
+const fileInput = ref(null)
 const reading = ref(false) // files are being encoded; replying is not yet true
 // Raw bytes per reply; the API enforces the same cap.
 const ATTACHMENTS_MAX_BYTES = 4 * 1024 * 1024
@@ -553,14 +561,23 @@ const doSend = async () => {
   } else {
     let attachments = []
     if (files.value.length) {
+      const id = props.message.messageId
       reading.value = true
-      attachments = await Promise.all(
-        files.value.map(async (f) => ({
-          filename: f.name,
-          contentType: f.type || 'application/octet-stream',
-          contentBase64: await base64Of(f)
-        }))
-      ).finally(() => (reading.value = false))
+      try {
+        attachments = await Promise.all(
+          files.value.map(async (f) => ({
+            filename: f.name,
+            contentType: f.type || 'application/octet-stream',
+            contentBase64: await base64Of(f)
+          }))
+        )
+      } catch {
+        return done(false, 'En bifogad fil gick inte att läsa. Ta bort den och försök igen.')
+      } finally {
+        reading.value = false
+      }
+      // Another thread was opened while reading; this draft is gone with it.
+      if (props.message?.messageId !== id) return
     }
     emit('reply', { body: text, close: closeAfter.value, attachments, done })
   }

@@ -604,8 +604,10 @@ const replyAttachments = (list) => {
       (a) =>
         typeof a?.filename === 'string' &&
         a.filename.trim() &&
+        typeof a.contentType === 'string' &&
         CONTENT_TYPE_RE.test(a.contentType) &&
         typeof a.contentBase64 === 'string' &&
+        a.contentBase64.length % 4 === 0 &&
         BASE64_RE.test(a.contentBase64)
     )
   if (!valid) {

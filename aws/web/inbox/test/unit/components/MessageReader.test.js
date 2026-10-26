@@ -307,6 +307,42 @@ describe('MessageReader', () => {
     expect(w.emitted('reply')).toHaveLength(1)
   })
 
+  it('does not send if another thread is opened while files are read', async () => {
+    const w = mount(MessageReader, { props: { message: message() } })
+    await w.find('[data-testid="reply-body"]').setValue('Tack!')
+    await pick(w, [new File(['hej'], 'a.txt', { type: 'text/plain' })])
+    await w.find('[data-testid="send-menu-toggle"]').trigger('click')
+    await w.find('[data-testid="opt-open"]').trigger('click')
+    await w.setProps({ message: message({ messageId: 'b' }) })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(w.emitted('reply')).toBeUndefined()
+  })
+
+  it('a file that cannot be read keeps the draft and says so', async () => {
+    vi.stubGlobal(
+      'FileReader',
+      class {
+        readAsDataURL() {
+          setTimeout(() => this.onerror())
+        }
+      }
+    )
+    const w = mount(MessageReader, { props: { message: message() } })
+    await w.find('[data-testid="reply-body"]').setValue('Tack!')
+    await pick(w, [new File(['hej'], 'a.txt')])
+    await w.find('[data-testid="send-menu-toggle"]').trigger('click')
+    await w.find('[data-testid="opt-open"]').trigger('click')
+    await vi.waitFor(() => expect(w.find('[data-testid="composer-error"]').exists()).toBe(true))
+    expect(w.emitted('reply')).toBeUndefined()
+    expect(w.findAll('[data-testid="attached-file"]')).toHaveLength(1)
+    vi.unstubAllGlobals()
+  })
+
+  it('the attach button is a focusable button', () => {
+    const w = mount(MessageReader, { props: { message: message() } })
+    expect(w.find('[data-testid="attach-button"]').element.tagName).toBe('BUTTON')
+  })
+
   it('emits set-assignee from the assignee dropdown', async () => {
     const w = mount(MessageReader, {
       props: {
