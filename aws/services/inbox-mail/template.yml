@@ -172,6 +172,13 @@ Resources:
             ExpirationInDays: !Ref InboundObjectExpiryDays
             NoncurrentVersionExpiration:
               NoncurrentDays: 35
+          # Files attached to sent replies, kept as long as received mail.
+          - Id: ExpireSentAttachments
+            Status: Enabled
+            Prefix: outbound/
+            ExpirationInDays: !Ref InboundObjectExpiryDays
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 35
           - Id: RemoveExpiredDeleteMarkers
             Status: Enabled
             ExpiredObjectDeleteMarker: true

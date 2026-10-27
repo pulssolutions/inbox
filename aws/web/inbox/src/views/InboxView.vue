@@ -58,6 +58,7 @@
       :assignees="assignees.list"
       :categories="categories.list"
       :attachment-busy="attachmentBusy"
+      :sent-images="sentImages"
       @back="closeMessage"
       @move="store.moveMessageAction"
       @delete="onDelete"
@@ -297,6 +298,31 @@ const onDownloadRaw = async (id) => {
 // `${messageId}:${index}` while a fetch is in flight, so the tapped chip can
 // show progress instead of looking dead.
 const attachmentBusy = ref(null)
+
+// Images we sent are shown in the thread; the recipient sees them inline too.
+const INLINE_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif'])
+const sentImages = ref({})
+watch(
+  () => store.current?.thread,
+  (thread) => {
+    for (const m of thread || []) {
+      if (m.direction !== 'outbound') continue
+      ;(m.attachments || []).forEach(async (a, i) => {
+        const key = `${m.messageId}:${i}`
+        if (!INLINE_IMAGE_TYPES.has(a.contentType) || key in sentImages.value) return
+        sentImages.value[key] = null
+        try {
+          const f = await store.fetchAttachmentAction(m.messageId, i)
+          sentImages.value[key] = `data:${f.contentType};base64,${f.contentBase64}`
+        } catch {
+          // Not loadable (expired, or sent before files were stored): offer the button.
+          delete sentImages.value[key]
+        }
+      })
+    }
+  },
+  { immediate: true }
+)
 
 // The attachment arrives base64 in JSON (the API needs our bearer token, so the
 // browser can't just follow a link) — decode to bytes before saving, or the

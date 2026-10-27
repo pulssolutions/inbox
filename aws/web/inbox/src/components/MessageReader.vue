@@ -141,20 +141,21 @@
               <!-- eslint-disable-next-line vue/no-v-html -- sanitized via DOMPurify -->
               <div v-if="htmlOf(item.m)" class="body-html" v-html="htmlOf(item.m)" />
               <div v-else class="body-text">{{ item.m.text }}</div>
-              <div v-if="item.m.direction === 'outbound' && (item.m.attachments || []).length" class="attachments">
-                <!-- The sent MIME is not kept, so there is nothing to download. -->
-                <span v-for="(a, i) in item.m.attachments" :key="i" class="attachment" data-testid="sent-attachment">
-                  <PaperclipIcon />
-                  <span class="attachment-name">{{ a.filename }}</span>
-                  <span class="attachment-meta">{{ formatBytes(a.size) }}</span>
-                </span>
-              </div>
-              <div v-else-if="(item.m.attachments || []).length" class="attachments">
+              <template v-for="(a, i) in item.m.attachments || []" :key="'img' + i">
+                <img
+                  v-if="sentImages[`${item.m.messageId}:${i}`]"
+                  class="sent-image"
+                  data-testid="sent-image"
+                  :src="sentImages[`${item.m.messageId}:${i}`]"
+                  :alt="a.filename"
+                />
+              </template>
+              <div v-if="downloads(item.m).length" class="attachments">
                 <!-- A real button, not a chip: the file has to be fetched with the
                      admin's bearer token and rebuilt client-side, so there's no
                      href to hand the browser. -->
                 <button
-                  v-for="(a, i) in item.m.attachments"
+                  v-for="{ a, i } in downloads(item.m)"
                   :key="i"
                   type="button"
                   class="attachment"
@@ -224,7 +225,6 @@
         @drop.prevent="addFiles($event.dataTransfer.files)"
       >
         <div class="composer-mobile-bar d-md-none">
-          <span class="topbar-spacer" />
           <button type="button" class="btn btn-ghost btn-sm" data-testid="composer-close" @click="composerOpen = false">
             ✕ Stäng
           </button>
@@ -409,7 +409,9 @@ const props = defineProps({
   // `${messageId}:${index}` of the attachment currently being fetched, so the
   // tapped chip can say so — on mobile the download is otherwise silent for a
   // second or two and looks like nothing happened.
-  attachmentBusy: { type: String, default: null }
+  attachmentBusy: { type: String, default: null },
+  // `${messageId}:${index}` -> data URI of a sent image; null while it loads.
+  sentImages: { type: Object, default: () => ({}) }
 })
 const emit = defineEmits([
   'move',
@@ -526,6 +528,12 @@ const PaperclipIcon = () =>
   ])
 const initialsOf = initials
 
+// Attachments offered as buttons: everything not shown (or loading) as an image.
+const downloads = (m) =>
+  (m.attachments || [])
+    .map((a, i) => ({ a, i }))
+    .filter(({ i }) => !(`${m.messageId}:${i}` in props.sentImages))
+
 // Sanitize the HTML part (keeps inline colour, strips scripts/handlers).
 const htmlOf = (member) =>
   member.html ? DOMPurify.sanitize(member.html, { FORBID_TAGS: ['style'], ADD_ATTR: ['target'] }) : null
@@ -628,6 +636,12 @@ const choose = (close) => {
 .composer-actions .btn {
   height: 40px;
   padding-block: 0;
+}
+.sent-image {
+  display: block;
+  max-height: 300px;
+  max-width: 100%;
+  margin-top: 10px;
 }
 .seen-eye {
   display: inline-flex;

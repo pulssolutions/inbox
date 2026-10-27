@@ -32,7 +32,7 @@ const requireMessage = async (deps, org, messageId, claims) => {
 }
 
 // Raw MIME for the debug panel. Returns the raw message as text so the client
-// can download it as an .eml file. Outbound rows have no S3 object.
+// can download it as an .eml file. Outbound rows have no raw MIME.
 export const raw = async ({ deps, org, pathParameters, claims }) => {
   const messageId = pathParameters?.messageId
   const message = await requireMessage(deps, org, messageId, claims)
@@ -64,14 +64,24 @@ export const attachment = async ({ deps, org, pathParameters, claims }) => {
     )
   }
   const message = await requireMessage(deps, org, messageId, claims)
-  if (!message.s3Key) {
-    throw new NotFoundError('NO_RAW', 'No raw MIME for this message')
+  let found
+  if (message.direction === 'outbound') {
+    // Each sent file is its own object; rows from before that have no key.
+    const meta = (message.attachments || [])[index]
+    if (meta?.s3Key) {
+      const content = await deps.mailStore.fetchRaw({ key: meta.s3Key })
+      found = { ...meta, size: content.length, content }
+    }
+  } else {
+    if (!message.s3Key) {
+      throw new NotFoundError('NO_RAW', 'No raw MIME for this message')
+    }
+    found = await deps.mailStore.fetchAttachment({
+      bucket: message.s3Bucket,
+      key: message.s3Key,
+      index
+    })
   }
-  const found = await deps.mailStore.fetchAttachment({
-    bucket: message.s3Bucket,
-    key: message.s3Key,
-    index
-  })
   if (!found) {
     throw new NotFoundError(
       'ATTACHMENT_NOT_FOUND',
@@ -451,6 +461,9 @@ export const remove = async ({ deps, org, pathParameters, claims }) => {
   for (const m of members.filter((m) => m.s3Key)) {
     await deps.mailStore.deleteRaw({ bucket: m.s3Bucket, key: m.s3Key })
   }
+  for (const a of members.flatMap((m) => m.attachments || []).filter((a) => a.s3Key)) {
+    await deps.mailStore.deleteRaw({ key: a.s3Key })
+  }
   await deps.db.deleteThread({ org, members })
   await recordAudit(deps, {
     org,
@@ -657,6 +670,16 @@ export const reply = async ({ deps, org, pathParameters, body, claims }) => {
   // sending domain, so it works per-org without extra config).
   const website = senderDomain ? `https://www.${senderDomain}` : undefined
 
+  // Files go up before the send, so a failed upload sends nothing.
+  const replyId = generateId()
+  const stored = await Promise.all(
+    attachments.map(async (a, i) => {
+      const s3Key = `outbound/${replyId}/${i}`
+      await deps.mailStore.putObject({ key: s3Key, body: a.content, contentType: a.contentType })
+      return { filename: a.filename, contentType: a.contentType, size: a.content.length, s3Key }
+    })
+  )
+
   // Thread the outgoing mail to the original's real RFC Message-ID so the
   // recipient's client builds a proper References chain.
   const sent = await deps.ses.sendReply({
@@ -679,7 +702,7 @@ export const reply = async ({ deps, org, pathParameters, body, claims }) => {
     : undefined
 
   const outbound = {
-    messageId: generateId(),
+    messageId: replyId,
     category: original.category,
     from: fromHeader,
     to: [to],
@@ -690,14 +713,7 @@ export const reply = async ({ deps, org, pathParameters, body, claims }) => {
     inReplyTo: original.messageId,
     threadId: original.threadId || original.messageId,
     bodyText: body.body,
-    // Listed in the thread, not downloadable: the sent MIME is not kept.
-    ...(attachments.length && {
-      attachments: attachments.map((a) => ({
-        filename: a.filename,
-        contentType: a.contentType,
-        size: a.content.length
-      }))
-    }),
+    ...(stored.length && { attachments: stored }),
     box: 'inbox',
     // Who actually sent this reply (the club/category is the visible From; this
     // names the admin behind it in the internal thread view).

@@ -479,7 +479,7 @@ describe('MessageReader', () => {
     ])
   })
 
-  it('lists sent attachments with no download action', () => {
+  it('shows loaded sent images inline; a loading one shows nothing, other files are buttons', async () => {
     const w = mount(MessageReader, {
       props: {
         message: message({
@@ -488,17 +488,30 @@ describe('MessageReader', () => {
             threadMsg({
               messageId: 'r1',
               direction: 'outbound',
-              attachments: [{ filename: 'plan.pdf', contentType: 'application/pdf', size: 2048 }]
+              attachments: [
+                { filename: 'a<b>.png', contentType: 'image/png', size: 3 },
+                { filename: 'plan.pdf', contentType: 'application/pdf', size: 2048 },
+                { filename: 'c.gif', contentType: 'image/gif', size: 3 }
+              ]
             })
           ]
-        })
+        }),
+        sentImages: { 'r1:0': 'data:image/png;base64,cG5n', 'r1:2': null }
       }
     })
-    const sent = w.find('[data-testid="sent-attachment"]')
-    expect(sent.text()).toContain('plan.pdf')
-    expect(sent.text()).toContain('2 kB')
-    expect(sent.element.tagName).not.toBe('BUTTON')
-    expect(w.findAll('[data-testid="attachment"]')).toHaveLength(0)
+    const imgs = w.findAll('[data-testid="sent-image"]')
+    expect(imgs.map((i) => [i.attributes('src'), i.attributes('alt')])).toEqual([
+      ['data:image/png;base64,cG5n', 'a<b>.png']
+    ])
+    const buttons = w.findAll('[data-testid="attachment"]')
+    expect(buttons.map((b) => b.text())).toEqual([expect.stringContaining('plan.pdf')])
+    await buttons[0].trigger('click')
+    expect(w.emitted('download-attachment')[0][0]).toMatchObject({ messageId: 'r1', index: 1 })
+  })
+
+  it('the mobile composer bar has no spacer', () => {
+    const w = mount(MessageReader, { props: { message: message() } })
+    expect(w.find('.composer-mobile-bar .topbar-spacer').exists()).toBe(false)
   })
 
   it('an attachment with no filename still renders something tappable', () => {

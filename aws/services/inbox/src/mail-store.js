@@ -114,6 +114,17 @@ export class MailStore {
     return toBuffer(obj.Body)
   }
 
+  async putObject({ bucket, key, body, contentType }) {
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: bucket || this.defaultBucket,
+        Key: key,
+        Body: body,
+        ContentType: contentType
+      })
+    )
+  }
+
   async deleteRaw({ bucket, key }) {
     await this.client.send(
       new DeleteObjectCommand({ Bucket: bucket || this.defaultBucket, Key: key })

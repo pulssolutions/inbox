@@ -523,7 +523,14 @@ Resources:
               - Effect: Allow
                 Action:
                   - s3:DeleteObject
-                Resource: !Sub "arn:aws:s3:::${MailBucketName}/inbound/*"
+                Resource:
+                  - !Sub "arn:aws:s3:::${MailBucketName}/inbound/*"
+                  - !Sub "arn:aws:s3:::${MailBucketName}/outbound/*"
+              # Files attached to a sent reply, one object each.
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub "arn:aws:s3:::${MailBucketName}/outbound/*"
               # Big attachments are copied out of the raw MIME to their own
               # short-lived object and served to the browser as a presigned URL.
               - Effect: Allow
