@@ -3,7 +3,7 @@ import { nextTick } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createRouter, createMemoryHistory } from 'vue-router'
-import { resetTestApi } from '../../setup'
+import { addTestMessage, resetTestApi } from '../../setup'
 import InboxView from '@/views/InboxView.vue'
 
 const buildRouter = () =>
@@ -93,6 +93,35 @@ describe('InboxView (integration with store + fetch shim)', () => {
     await flushPromises()
     expect(alert).toHaveBeenCalledWith(expect.stringContaining('rensats'))
     alert.mockRestore()
+  })
+
+  it('shows sent images inline and keeps other sent files downloadable', async () => {
+    addTestMessage({
+      messageId: 'r-old',
+      direction: 'outbound',
+      threadId: 'm-old',
+      inReplyTo: 'm-old',
+      from: 'Acme <styrelse@acme.example>',
+      receivedAt: '2026-05-21T11:00:00Z',
+      box: 'inbox',
+      _body: {
+        text: 'Här är bilden.',
+        attachments: [
+          { filename: 'bild.png', contentType: 'image/png', size: 3, content: 'png' },
+          { filename: 'plan.pdf', contentType: 'application/pdf', size: 3, content: 'pdf' }
+        ]
+      }
+    })
+    const { w } = await mountView('/m/m-old')
+    await flushPromises()
+    const img = w.find('[data-testid="sent-image"]')
+    expect(img.attributes('src')).toBe(`data:image/png;base64,${btoa('png')}`)
+    expect(img.attributes('alt')).toBe('bild.png')
+    // protokoll.pdf (inbound) and plan.pdf (sent) are buttons; the image is not.
+    expect(w.findAll('[data-testid="attachment"]').map((b) => b.text())).toEqual([
+      expect.stringContaining('protokoll.pdf'),
+      expect.stringContaining('plan.pdf')
+    ])
   })
 
   it('loads and lists inbox messages newest-first', async () => {

@@ -32,7 +32,7 @@ const requireMessage = async (deps, org, messageId, claims) => {
 }
 
 // Raw MIME for the debug panel. Returns the raw message as text so the client
-// can download it as an .eml file. Outbound rows have no S3 object.
+// can download it as an .eml file. Outbound rows have no raw MIME.
 export const raw = async ({ deps, org, pathParameters, claims }) => {
   const messageId = pathParameters?.messageId
   const message = await requireMessage(deps, org, messageId, claims)
@@ -64,14 +64,24 @@ export const attachment = async ({ deps, org, pathParameters, claims }) => {
     )
   }
   const message = await requireMessage(deps, org, messageId, claims)
-  if (!message.s3Key) {
-    throw new NotFoundError('NO_RAW', 'No raw MIME for this message')
+  let found
+  if (message.direction === 'outbound') {
+    // Each sent file is its own object; rows from before that have no key.
+    const meta = (message.attachments || [])[index]
+    if (meta?.s3Key) {
+      const content = await deps.mailStore.fetchRaw({ key: meta.s3Key })
+      found = { ...meta, size: content.length, content }
+    }
+  } else {
+    if (!message.s3Key) {
+      throw new NotFoundError('NO_RAW', 'No raw MIME for this message')
+    }
+    found = await deps.mailStore.fetchAttachment({
+      bucket: message.s3Bucket,
+      key: message.s3Key,
+      index
+    })
   }
-  const found = await deps.mailStore.fetchAttachment({
-    bucket: message.s3Bucket,
-    key: message.s3Key,
-    index
-  })
   if (!found) {
     throw new NotFoundError(
       'ATTACHMENT_NOT_FOUND',
@@ -145,7 +155,7 @@ export const counts = async ({ deps, org, claims }) => {
 const resolveMember = async (deps, m) => {
   let body = { text: '', html: null, attachments: [], replyTo: null }
   if (m.direction === 'outbound' || !m.s3Key) {
-    body = { text: m.bodyText || '', html: null, attachments: [] }
+    body = { text: m.bodyText || '', html: null, attachments: m.attachments || [] }
   } else {
     try {
       const parsed = await deps.mailStore.fetchAndParse({
@@ -451,6 +461,9 @@ export const remove = async ({ deps, org, pathParameters, claims }) => {
   for (const m of members.filter((m) => m.s3Key)) {
     await deps.mailStore.deleteRaw({ bucket: m.s3Bucket, key: m.s3Key })
   }
+  for (const a of members.flatMap((m) => m.attachments || []).filter((a) => a.s3Key)) {
+    await deps.mailStore.deleteRaw({ key: a.s3Key })
+  }
   await deps.db.deleteThread({ org, members })
   await recordAudit(deps, {
     org,
@@ -591,6 +604,39 @@ const replyRecipient = async (deps, message) => {
   }
 }
 
+// Raw bytes per reply. Base64 inflates by a third, so this keeps the request
+// under the 6 MB Lambda payload limit.
+const REPLY_ATTACHMENTS_MAX_BYTES = 4 * 1024 * 1024
+const CONTENT_TYPE_RE = /^[\w.+-]+\/[\w.+-]+$/
+const BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/
+
+const replyAttachments = (list) => {
+  const valid =
+    Array.isArray(list) &&
+    list.every(
+      (a) =>
+        typeof a?.filename === 'string' &&
+        a.filename.trim() &&
+        typeof a.contentType === 'string' &&
+        CONTENT_TYPE_RE.test(a.contentType) &&
+        typeof a.contentBase64 === 'string' &&
+        a.contentBase64.length % 4 === 0 &&
+        BASE64_RE.test(a.contentBase64)
+    )
+  if (!valid) {
+    throw new ValidationError('ATTACHMENTS_INVALID', 'Invalid attachments')
+  }
+  const files = list.map((a) => ({
+    filename: a.filename,
+    contentType: a.contentType,
+    content: Buffer.from(a.contentBase64, 'base64')
+  }))
+  if (files.reduce((n, f) => n + f.content.length, 0) > REPLY_ATTACHMENTS_MAX_BYTES) {
+    throw new ValidationError('ATTACHMENTS_TOO_LARGE', 'Attachments exceed 4 MB')
+  }
+  return files
+}
+
 export const reply = async ({ deps, org, pathParameters, body, claims }) => {
   const messageId = pathParameters?.messageId
   const original = await requireMessage(deps, org, messageId, claims)
@@ -598,6 +644,7 @@ export const reply = async ({ deps, org, pathParameters, body, claims }) => {
   if (!body || typeof body.body !== 'string' || body.body.trim().length === 0) {
     throw new ValidationError('REPLY_BODY_REQUIRED', 'Reply body required')
   }
+  const attachments = replyAttachments(body.attachments ?? [])
 
   const subject = body.subject || `Re: ${original.subject || ''}`
   const to = await replyRecipient(deps, original)
@@ -623,6 +670,16 @@ export const reply = async ({ deps, org, pathParameters, body, claims }) => {
   // sending domain, so it works per-org without extra config).
   const website = senderDomain ? `https://www.${senderDomain}` : undefined
 
+  // Files go up before the send, so a failed upload sends nothing.
+  const replyId = generateId()
+  const stored = await Promise.all(
+    attachments.map(async (a, i) => {
+      const s3Key = `outbound/${replyId}/${i}`
+      await deps.mailStore.putObject({ key: s3Key, body: a.content, contentType: a.contentType })
+      return { filename: a.filename, contentType: a.contentType, size: a.content.length, s3Key }
+    })
+  )
+
   // Thread the outgoing mail to the original's real RFC Message-ID so the
   // recipient's client builds a proper References chain.
   const sent = await deps.ses.sendReply({
@@ -633,7 +690,8 @@ export const reply = async ({ deps, org, pathParameters, body, claims }) => {
     fromName,
     fromAddress,
     orgName: clubName,
-    website
+    website,
+    attachments
   })
 
   // Record SES's assigned Message-ID so a reply to THIS mail (In-Reply-To /
@@ -644,7 +702,7 @@ export const reply = async ({ deps, org, pathParameters, body, claims }) => {
     : undefined
 
   const outbound = {
-    messageId: generateId(),
+    messageId: replyId,
     category: original.category,
     from: fromHeader,
     to: [to],
@@ -655,6 +713,7 @@ export const reply = async ({ deps, org, pathParameters, body, claims }) => {
     inReplyTo: original.messageId,
     threadId: original.threadId || original.messageId,
     bodyText: body.body,
+    ...(stored.length && { attachments: stored }),
     box: 'inbox',
     // Who actually sent this reply (the club/category is the visible From; this
     // names the admin behind it in the internal thread view).

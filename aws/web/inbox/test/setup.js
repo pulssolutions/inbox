@@ -123,6 +123,10 @@ export const setWebhookGroupMissing = (missing) => {
   state.webhookGroupMissing = missing
 }
 
+export const addTestMessage = (message) => {
+  state.messages.push({ state: 'open', ...message })
+}
+
 export const resetTestApi = () => {
   state.messages = seed().map((m) => ({ state: 'open', ...m }))
   state.notes = []

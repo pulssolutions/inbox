@@ -7,6 +7,10 @@ export class FakeMailStore {
     this.deleted = []
   }
 
+  async putObject({ bucket, key, body }) {
+    this.raw.set(`${bucket}|${key}`, body)
+  }
+
   async deleteRaw({ bucket, key }) {
     this.deleted.push({ bucket, key })
   }
@@ -57,6 +61,6 @@ export class FakeMailStore {
       err.name = 'NotFoundError'
       throw err
     }
-    return Buffer.from(hit, 'utf8')
+    return Buffer.isBuffer(hit) ? hit : Buffer.from(hit, 'utf8')
   }
 }

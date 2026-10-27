@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { simpleParser } from 'mailparser'
 import { Ses, buildEmail } from '../../src/ses.js'
 
 const captureClient = () => ({
@@ -186,6 +187,96 @@ describe('Ses', () => {
       // member-facing: no dark header band; footer links the club name
       expect(raw).not.toContain('background:#1f2430')
       expect(raw).toContain('href="https://www.acme.example"')
+    })
+    it('without attachments keeps the plain multipart/alternative shape', async () => {
+      const client = captureClient()
+      const ses = new Ses({ client, fromAddress: 'support@acme.example' })
+      await ses.sendReply({ to: 'a@b.se', subject: 'Re', body: 'x', attachments: [] })
+      const raw = rawOf(client.commands[0])
+      expect(raw).not.toContain('multipart/mixed')
+      expect(raw.match(/^Content-Type: multipart\/alternative/m)).not.toBeNull()
+    })
+
+    it('with attachments sends multipart/mixed: the alternative part + one base64 part per file', async () => {
+      const client = captureClient()
+      const ses = new Ses({ client, fromAddress: 'support@acme.example' })
+      const big = Buffer.alloc(300, 7)
+      await ses.sendReply({
+        to: 'a@b.se',
+        subject: 'Re',
+        body: 'Se bilagor',
+        attachments: [
+          { filename: 'Lönebesked.pdf', contentType: 'application/pdf', content: big },
+          { filename: 'a.txt', contentType: 'text/plain', content: Buffer.from('hej') }
+        ]
+      })
+      const raw = rawOf(client.commands[0])
+      expect(raw).toMatch(/^Content-Type: multipart\/mixed/m)
+      expect(raw.split('\r\n').every((l) => l.length <= 998)).toBe(true)
+      const mail = await simpleParser(raw)
+      expect(mail.text.trim()).toBe('Se bilagor')
+      expect(mail.html).toContain('Se bilagor')
+      expect(mail.attachments.map((a) => [a.filename, a.contentType])).toEqual([
+        ['Lönebesked.pdf', 'application/pdf'],
+        ['a.txt', 'text/plain']
+      ])
+      expect(mail.attachments[0].content.equals(big)).toBe(true)
+      expect(mail.attachments[1].content.toString()).toBe('hej')
+      expect(raw).not.toContain('multipart/related')
+      expect(mail.attachments.every((a) => a.contentDisposition === 'attachment')).toBe(true)
+      expect(mail.html).not.toContain('<img')
+    })
+
+    const png = (filename) => ({ filename, contentType: 'image/png', content: Buffer.from('png-bytes') })
+    const sendWith = async (attachments) => {
+      const client = captureClient()
+      const ses = new Ses({ client, fromAddress: 'support@acme.example' })
+      await ses.sendReply({ to: 'a@b.se', subject: 'Re', body: 'Se bild', orgName: 'Acme', attachments })
+      const raw = rawOf(client.commands[0])
+      return { raw, mail: await simpleParser(raw, { keepCidLinks: true }) }
+    }
+
+    it('embeds an image inline, referenced by cid below the text and before the footer', async () => {
+      const { raw, mail } = await sendWith([png('a<b>.png')])
+      expect(raw).toMatch(/^Content-Type: multipart\/related/m)
+      expect(raw).not.toContain('multipart/mixed')
+      const [img] = mail.attachments
+      expect(img).toMatchObject({ contentDisposition: 'inline', contentType: 'image/png' })
+      expect(img.cid).toBeTruthy()
+      expect(mail.html).toContain(`src="cid:${img.cid}"`)
+      expect(mail.html).toContain('alt="a&lt;b&gt;.png"')
+      expect(mail.html.indexOf('Se bild')).toBeLessThan(mail.html.indexOf('<img'))
+      expect(mail.html.indexOf('<img')).toBeLessThan(mail.html.indexOf('Acme'))
+      expect(mail.text.trim()).toBe('Se bild')
+    })
+
+    it('mixes inline images with ordinary attachments, each image with its own cid', async () => {
+      const pdf = { filename: 'a.pdf', contentType: 'application/pdf', content: Buffer.from('pdf') }
+      const jpg = { filename: 'b.jpg', contentType: 'image/jpeg', content: Buffer.from('jpg') }
+      const { raw, mail } = await sendWith([png('a.png'), pdf, jpg])
+      expect(raw).toMatch(/^Content-Type: multipart\/mixed/m)
+      expect(raw).toContain('Content-Type: multipart/related')
+      const inline = mail.attachments.filter((a) => a.contentDisposition === 'inline')
+      expect(inline.map((a) => a.filename)).toEqual(['a.png', 'b.jpg'])
+      expect(new Set(inline.map((a) => a.cid)).size).toBe(2)
+      for (const a of inline) expect(mail.html).toContain(`src="cid:${a.cid}"`)
+      const files = mail.attachments.filter((a) => a.contentDisposition === 'attachment')
+      expect(files.map((a) => a.filename)).toEqual(['a.pdf'])
+    })
+
+    it('keeps every line within 998 characters with many inline images', async () => {
+      const images = Array.from({ length: 8 }, (_, i) => png(`bild-${i}.png`))
+      const { raw, mail } = await sendWith(images)
+      expect(raw.split('\r\n').every((l) => l.length <= 998)).toBe(true)
+      expect(mail.attachments.filter((a) => mail.html.includes(`cid:${a.cid}`))).toHaveLength(8)
+    })
+
+    it('never inlines svg', async () => {
+      const { mail } = await sendWith([
+        { filename: 'x.svg', contentType: 'image/svg+xml', content: Buffer.from('<svg/>') }
+      ])
+      expect(mail.attachments[0].contentDisposition).toBe('attachment')
+      expect(mail.html).not.toContain('<img')
     })
   })
 

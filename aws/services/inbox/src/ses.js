@@ -24,7 +24,9 @@ export const buildEmail = ({
   // Replies to members hide the dark header band and use an org-specific
   // footer (name linked to the club site); admin notifications keep both.
   showHeader = true,
-  footerUrl
+  footerUrl,
+  // [{ cid, filename }] shown below the text (replies only).
+  images = []
 } = {}) => {
   const t = strings()
   const label = ctaLabel || t.ctaOpen
@@ -71,7 +73,17 @@ export const buildEmail = ({
   // A reply is a person writing, so it reads like one: no card, no padding. The
   // card also left a wide blank margin once a client quoted it in a reply.
   if (!showHeader) {
-    const html = `<!doctype html><html><body style="margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">${headingHtml}${paraHtml}${ctaHtml}<p style="margin:18px 0 0;color:#8a909c;font-size:12px">${footerInner}</p></body></html>`
+    // One line per image (and before the footer) keeps the 8bit html part
+    // under the 998-character line limit however many images there are.
+    const imagesHtml = images.length
+      ? images
+          .map(
+            (i) =>
+              `\r\n<img src="cid:${i.cid}" alt="${escapeHtml(i.filename)}" style="display:block;max-height:300px;max-width:100%;height:auto;width:auto;margin:0 0 12px">`
+          )
+          .join('') + '\r\n'
+      : ''
+    const html = `<!doctype html><html><body style="margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">${headingHtml}${paraHtml}${ctaHtml}${imagesHtml}<p style="margin:18px 0 0;color:#8a909c;font-size:12px">${footerInner}</p></body></html>`
     return { html, text }
   }
   const html = `<!doctype html><html><body style="margin:0;background:#f2f3f5;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
@@ -93,6 +105,41 @@ const encodeHeaderValue = (value) => {
 const angled = (id) => {
   const v = String(id).trim()
   return v.startsWith('<') ? v : `<${v}>`
+}
+
+// Shown in the body by every major client; svg is never inlined (it can carry script).
+const INLINE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif'])
+
+const newBoundary = () => `==_puls_${randomBytes(12).toString('hex')}`
+
+const filePart = (a, disposition) => {
+  const name = `"${encodeHeaderValue(a.filename.replace(/["\\\r\n]/g, ''))}"`
+  return [
+    `Content-Type: ${a.contentType}; name=${name}`,
+    'Content-Transfer-Encoding: base64',
+    `Content-Disposition: ${disposition}; filename=${name}`,
+    ...(a.cid ? [`Content-ID: <${a.cid}>`] : []),
+    '',
+    a.content.toString('base64').replace(/.{76}/g, '$&\r\n'),
+    ''
+  ].join('\r\n')
+}
+
+// Nest `inner` ({ type, body }) as the first part of a new multipart.
+const wrap = (type, inner, parts) => {
+  const b = newBoundary()
+  return {
+    type: `${type}; boundary="${b}"`,
+    body: [
+      `--${b}`,
+      `Content-Type: ${inner.type}`,
+      '',
+      inner.body,
+      ...parts.map((p) => `--${b}\r\n${p}`),
+      `--${b}--`,
+      ''
+    ].join('\r\n')
+  }
 }
 
 // Extract the bare envelope recipient from a possibly display-named address.
@@ -126,38 +173,67 @@ export class Ses {
 
   // Build a multipart/alternative raw MIME message (text + themed html) and
   // send it via SendRawEmail (the only way to set threading headers + html).
-  async _sendRaw({ from, to, subject, text, html, extraHeaders = [] }) {
-    const boundary = `==_puls_${randomBytes(12).toString('hex')}`
+  // Inline images nest the alternative part in a multipart/related; other
+  // attachments nest that in a multipart/mixed.
+  async _sendRaw({
+    from,
+    to,
+    subject,
+    text,
+    html,
+    extraHeaders = [],
+    inline = [],
+    attachments = []
+  }) {
+    const boundary = newBoundary()
     const headers = [
       `From: ${from}`,
       `To: ${to}`,
       `Reply-To: ${from}`,
       `Subject: ${encodeHeaderValue(subject)}`,
       'MIME-Version: 1.0',
-      ...extraHeaders,
-      `Content-Type: multipart/alternative; boundary="${boundary}"`
+      ...extraHeaders
     ]
-    const body = [
-      `--${boundary}`,
-      'Content-Type: text/plain; charset=utf-8',
-      'Content-Transfer-Encoding: 8bit',
-      '',
-      text,
-      `--${boundary}`,
-      'Content-Type: text/html; charset=utf-8',
-      'Content-Transfer-Encoding: 8bit',
-      '',
-      html,
-      `--${boundary}--`,
-      ''
-    ].join('\r\n')
+    let part = {
+      type: `multipart/alternative; boundary="${boundary}"`,
+      body: [
+        `--${boundary}`,
+        'Content-Type: text/plain; charset=utf-8',
+        'Content-Transfer-Encoding: 8bit',
+        '',
+        text,
+        `--${boundary}`,
+        'Content-Type: text/html; charset=utf-8',
+        'Content-Transfer-Encoding: 8bit',
+        '',
+        html,
+        `--${boundary}--`,
+        ''
+      ].join('\r\n')
+    }
+    if (inline.length) {
+      part = wrap(
+        'multipart/related; type="multipart/alternative"',
+        part,
+        inline.map((a) => filePart(a, 'inline'))
+      )
+    }
+    if (attachments.length) {
+      part = wrap(
+        'multipart/mixed',
+        part,
+        attachments.map((a) => filePart(a, 'attachment'))
+      )
+    }
+    const { type: contentType, body } = part
+    headers.push(`Content-Type: ${contentType}`)
 
-    const raw = `${headers.join('\r\n')}\r\n\r\n${body}`
+    const raw = Buffer.from(`${headers.join('\r\n')}\r\n\r\n${body}`, 'utf8')
     return this.client.send(
       new SendRawEmailCommand({
         Source: bareAddress(from),
         Destinations: [bareAddress(to)],
-        RawMessage: { Data: Buffer.from(raw, 'utf8') }
+        RawMessage: { Data: raw }
       })
     )
   }
@@ -173,7 +249,8 @@ export class Ses {
     fromName,
     fromAddress,
     orgName: footerOrgName,
-    website
+    website,
+    attachments
   }) {
     // Default to the configured sender; callers pass a category alias
     // (e.g. kurser@example.com) so replies thread back to that inbox.
@@ -186,11 +263,15 @@ export class Ses {
 
     // Member-facing: no header band; footer is the club name linked to its site.
     // orgName is supplied by the caller (derived per-tenant); no club hardcoded.
+    const inline = (attachments || [])
+      .filter((a) => INLINE_TYPES.has(a.contentType))
+      .map((a) => ({ ...a, cid: `${randomBytes(12).toString('hex')}@inbox` }))
     const { html } = buildEmail({
       orgName: footerOrgName || fromName || '',
       paragraphs: String(body).split(/\n\s*\n/),
       showHeader: false,
-      footerUrl: website
+      footerUrl: website,
+      images: inline
     })
     return this._sendRaw({
       from,
@@ -198,7 +279,9 @@ export class Ses {
       subject,
       text: body,
       html,
-      extraHeaders
+      extraHeaders,
+      inline,
+      attachments: (attachments || []).filter((a) => !INLINE_TYPES.has(a.contentType))
     })
   }
 

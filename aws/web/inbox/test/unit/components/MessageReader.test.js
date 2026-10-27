@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import MessageReader from '@/components/MessageReader.vue'
 
@@ -254,6 +254,102 @@ describe('MessageReader', () => {
     expect(w.emitted('reply')[0][0]).toMatchObject({ body: 'Tack!', close: false })
   })
 
+  const MB = 1024 * 1024
+  const fileOf = (name, bytes) => new File([new Uint8Array(bytes)], name, { type: 'text/plain' })
+  const pick = async (w, files) => {
+    const input = w.find('[data-testid="attach-input"]')
+    Object.defineProperty(input.element, 'files', { value: files, configurable: true })
+    await input.trigger('change')
+  }
+
+  it('picked and dropped files are listed with a running total, and can be removed', async () => {
+    const w = mount(MessageReader, { props: { message: message() } })
+    await pick(w, [fileOf('a.txt', 3)])
+    await w.find('.composer').trigger('drop', { dataTransfer: { files: [fileOf('b.txt', 2 * MB)] } })
+    expect(w.findAll('[data-testid="attached-file"]').map((f) => f.text())).toEqual([
+      expect.stringContaining('a.txt'),
+      expect.stringContaining('b.txt')
+    ])
+    expect(w.find('[data-testid="attach-total"]').text()).toBe('2,0 MB / 4 MB')
+    // Files sit at the left of the send bar, before the attach button.
+    const bar = w.find('.composer-bar').html()
+    expect(bar.indexOf('attached-file')).toBeGreaterThan(-1)
+    expect(bar.indexOf('attached-file')).toBeLessThan(bar.indexOf('attach-button'))
+    await w.findAll('[data-testid="remove-file"]')[1].trigger('click')
+    expect(w.find('[data-testid="attach-total"]').text()).toBe('3 B / 4 MB')
+  })
+
+  it('over 4 MB the total is an error and send is disabled', async () => {
+    const w = mount(MessageReader, { props: { message: message() } })
+    await w.find('[data-testid="reply-body"]').setValue('Tack!')
+    await pick(w, [fileOf('a.bin', 4 * MB), fileOf('b.bin', 1)])
+    expect(w.find('[data-testid="attach-total"]').classes()).toContain('text-danger')
+    expect(w.find('[data-testid="send-reply"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('sends the files base64-encoded with the reply', async () => {
+    const w = mount(MessageReader, { props: { message: message() } })
+    await w.find('[data-testid="reply-body"]').setValue('Tack!')
+    await pick(w, [new File(['hej'], 'a.txt', { type: 'text/plain' })])
+    await w.find('[data-testid="send-menu-toggle"]').trigger('click')
+    await w.find('[data-testid="opt-open"]').trigger('click')
+    await vi.waitFor(() => expect(w.emitted('reply')).toBeDefined())
+    expect(w.emitted('reply')[0][0].attachments).toEqual([
+      { filename: 'a.txt', contentType: 'text/plain', contentBase64: 'aGVq' }
+    ])
+  })
+
+  it('a second click while files are read does not send twice', async () => {
+    const w = mount(MessageReader, { props: { message: message() } })
+    await w.find('[data-testid="reply-body"]').setValue('Tack!')
+    await pick(w, [new File(['hej'], 'a.txt', { type: 'text/plain' })])
+    await w.find('[data-testid="send-menu-toggle"]').trigger('click')
+    await w.find('[data-testid="opt-open"]').trigger('click')
+    await w.find('[data-testid="send-reply"]').trigger('click')
+    await vi.waitFor(() => expect(w.emitted('reply')).toBeDefined())
+    await new Promise((r) => setTimeout(r, 20))
+    expect(w.emitted('reply')).toHaveLength(1)
+  })
+
+  it('does not send if another thread is opened while files are read', async () => {
+    const w = mount(MessageReader, { props: { message: message() } })
+    await w.find('[data-testid="reply-body"]').setValue('Tack!')
+    await pick(w, [new File(['hej'], 'a.txt', { type: 'text/plain' })])
+    await w.find('[data-testid="send-menu-toggle"]').trigger('click')
+    await w.find('[data-testid="opt-open"]').trigger('click')
+    await w.setProps({ message: message({ messageId: 'b' }) })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(w.emitted('reply')).toBeUndefined()
+  })
+
+  it('a file that cannot be read keeps the draft and says so', async () => {
+    vi.stubGlobal(
+      'FileReader',
+      class {
+        readAsDataURL() {
+          setTimeout(() => this.onerror())
+        }
+      }
+    )
+    const w = mount(MessageReader, { props: { message: message() } })
+    await w.find('[data-testid="reply-body"]').setValue('Tack!')
+    await pick(w, [new File(['hej'], 'a.txt')])
+    await w.find('[data-testid="send-menu-toggle"]').trigger('click')
+    await w.find('[data-testid="opt-open"]').trigger('click')
+    await vi.waitFor(() => expect(w.find('[data-testid="composer-error"]').exists()).toBe(true))
+    expect(w.emitted('reply')).toBeUndefined()
+    expect(w.findAll('[data-testid="attached-file"]')).toHaveLength(1)
+    vi.unstubAllGlobals()
+  })
+
+  it('the attach button is a focusable button with a paperclip icon', () => {
+    const w = mount(MessageReader, { props: { message: message() } })
+    const btn = w.find('[data-testid="attach-button"]')
+    expect(btn.element.tagName).toBe('BUTTON')
+    expect(btn.text()).toBe('Bifoga fil')
+    expect(btn.find('svg[aria-hidden="true"]').exists()).toBe(true)
+  })
+
   it('emits set-assignee from the assignee dropdown', async () => {
     const w = mount(MessageReader, {
       props: {
@@ -381,6 +477,41 @@ describe('MessageReader', () => {
     expect(w.emitted('download-attachment')[0]).toEqual([
       { messageId: 'r1', index: 1, filename: 'offert.pdf' }
     ])
+  })
+
+  it('shows loaded sent images inline; a loading one shows nothing, other files are buttons', async () => {
+    const w = mount(MessageReader, {
+      props: {
+        message: message({
+          thread: [
+            threadMsg(),
+            threadMsg({
+              messageId: 'r1',
+              direction: 'outbound',
+              attachments: [
+                { filename: 'a<b>.png', contentType: 'image/png', size: 3 },
+                { filename: 'plan.pdf', contentType: 'application/pdf', size: 2048 },
+                { filename: 'c.gif', contentType: 'image/gif', size: 3 }
+              ]
+            })
+          ]
+        }),
+        sentImages: { 'r1:0': 'data:image/png;base64,cG5n', 'r1:2': null }
+      }
+    })
+    const imgs = w.findAll('[data-testid="sent-image"]')
+    expect(imgs.map((i) => [i.attributes('src'), i.attributes('alt')])).toEqual([
+      ['data:image/png;base64,cG5n', 'a<b>.png']
+    ])
+    const buttons = w.findAll('[data-testid="attachment"]')
+    expect(buttons.map((b) => b.text())).toEqual([expect.stringContaining('plan.pdf')])
+    await buttons[0].trigger('click')
+    expect(w.emitted('download-attachment')[0][0]).toMatchObject({ messageId: 'r1', index: 1 })
+  })
+
+  it('the mobile composer bar has no spacer', () => {
+    const w = mount(MessageReader, { props: { message: message() } })
+    expect(w.find('.composer-mobile-bar .topbar-spacer').exists()).toBe(false)
   })
 
   it('an attachment with no filename still renders something tappable', () => {

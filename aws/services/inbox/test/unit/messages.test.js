@@ -732,6 +732,125 @@ describe('messages.reply', () => {
     expect(res.data.subject).toBe('Anpassad')
   })
 
+  const LIMIT = 4 * 1024 * 1024
+  const file = (bytes, filename = 'a.bin') => ({
+    filename,
+    contentType: 'application/octet-stream',
+    contentBase64: Buffer.alloc(bytes, 1).toString('base64')
+  })
+  const replyWith = (attachments) =>
+    reply({
+      deps,
+      org: ORG,
+      pathParameters: { messageId: 'm1' },
+      body: { body: 'Se bilaga', attachments },
+      claims: CLAIMS
+    })
+
+  it('uploads each file before sending and records its s3Key on the row', async () => {
+    await deps.db.putMessage({ org: ORG, message: baseMessage() })
+    const sentAtUpload = []
+    const put = deps.mailStore.putObject.bind(deps.mailStore)
+    deps.mailStore.putObject = async (args) => {
+      sentAtUpload.push(deps.ses.replies.length)
+      return put(args)
+    }
+    const res = await replyWith([file(LIMIT - 1, 'a.pdf'), file(1, 'b.txt')])
+    expect(res.statusCode).toBe(201)
+    expect(sentAtUpload).toEqual([0, 0])
+    const sent = deps.ses.replies[0].attachments
+    expect(sent.map((a) => [a.filename, a.content.length])).toEqual([
+      ['a.pdf', LIMIT - 1],
+      ['b.txt', 1]
+    ])
+    const id = res.data.messageId
+    const stored = await deps.db.getMessage({ org: ORG, messageId: id })
+    expect(stored.s3Key).toBeUndefined()
+    expect(stored.attachments).toEqual([
+      { filename: 'a.pdf', contentType: 'application/octet-stream', size: LIMIT - 1, s3Key: `outbound/${id}/0` },
+      { filename: 'b.txt', contentType: 'application/octet-stream', size: 1, s3Key: `outbound/${id}/1` }
+    ])
+    expect((await deps.mailStore.fetchRaw({ key: `outbound/${id}/1` })).length).toBe(1)
+
+    const d = await detail({ deps, org: ORG, pathParameters: { messageId: 'm1' }, claims: CLAIMS })
+    expect(d.thread.find((m) => m.messageId === id).attachments).toEqual(stored.attachments)
+
+    const got = await attachment({ deps, org: ORG, pathParameters: { messageId: id, index: '1' }, claims: CLAIMS })
+    expect(got).toEqual({
+      filename: 'b.txt',
+      contentType: 'application/octet-stream',
+      size: 1,
+      contentBase64: Buffer.alloc(1, 1).toString('base64')
+    })
+
+    await deps.db.setMessageBox({ org: ORG, messageId: 'm1', box: 'archived' })
+    await remove({ deps, org: ORG, pathParameters: { messageId: 'm1' }, claims: CLAIMS })
+    expect(deps.mailStore.deleted).toEqual(
+      expect.arrayContaining([
+        { bucket: undefined, key: `outbound/${id}/0` },
+        { bucket: undefined, key: `outbound/${id}/1` }
+      ])
+    )
+  })
+
+  it('sends nothing and writes no row when an upload fails', async () => {
+    await deps.db.putMessage({ org: ORG, message: baseMessage() })
+    deps.mailStore.putObject = async () => {
+      throw new Error('s3 down')
+    }
+    await expect(replyWith([file(1)])).rejects.toThrow('s3 down')
+    expect(deps.ses.replies).toHaveLength(0)
+    const thread = await deps.db.listThread({ org: ORG, threadId: 'm1' })
+    expect(thread.map((m) => m.messageId)).toEqual(['m1'])
+  })
+
+  it('404s an outbound attachment sent before files were stored', async () => {
+    await deps.db.putMessage({
+      org: ORG,
+      message: baseMessage({
+        messageId: 'r1',
+        direction: 'outbound',
+        s3Key: undefined,
+        threadId: 'm1',
+        attachments: [{ filename: 'a.pdf', contentType: 'application/pdf', size: 3 }]
+      })
+    })
+    await expect(
+      attachment({ deps, org: ORG, pathParameters: { messageId: 'r1', index: '0' }, claims: CLAIMS })
+    ).rejects.toMatchObject({ code: 'ATTACHMENT_NOT_FOUND' })
+  })
+
+  it('treats attachments: null as no attachments', async () => {
+    await deps.db.putMessage({ org: ORG, message: baseMessage() })
+    const res = await replyWith(null)
+    expect(res.statusCode).toBe(201)
+    expect(deps.ses.replies[0].attachments).toEqual([])
+  })
+
+  it('rejects attachments over 4 MB in total without sending', async () => {
+    await deps.db.putMessage({ org: ORG, message: baseMessage() })
+    await expect(replyWith([file(LIMIT), file(1)])).rejects.toMatchObject({
+      name: 'ValidationError',
+      code: 'ATTACHMENTS_TOO_LARGE'
+    })
+    expect(deps.ses.replies).toHaveLength(0)
+  })
+
+  it.each([
+    ['not an array', 'x'],
+    ['missing filename', [{ contentType: 'text/plain', contentBase64: 'aGVq' }]],
+    ['bad content type', [{ filename: 'a', contentType: 'text/plain\r\nX: y', contentBase64: 'aGVq' }]],
+    ['bad base64', [{ filename: 'a', contentType: 'text/plain', contentBase64: 'not base64!' }]],
+    ['truncated base64', [{ filename: 'a', contentType: 'text/plain', contentBase64: 'aGVqZ' }]],
+    ['a non-string content type', [{ filename: 'a', contentType: ['text/plain'], contentBase64: 'aGVq' }]]
+  ])('rejects attachments that are %s', async (_, attachments) => {
+    await deps.db.putMessage({ org: ORG, message: baseMessage() })
+    await expect(replyWith(attachments)).rejects.toMatchObject({
+      name: 'ValidationError',
+      code: 'ATTACHMENTS_INVALID'
+    })
+  })
+
   it('rejects an empty reply body', async () => {
     await deps.db.putMessage({ org: ORG, message: baseMessage() })
     await expect(
@@ -875,12 +994,11 @@ describe('messages.attachment', () => {
     expect(out.size).toBe(5 * 1024 * 1024)
   })
 
-  it('404s when the raw mail is gone (lifecycle-expired or outbound)', async () => {
+  it('404s when the raw mail is gone (lifecycle-expired)', async () => {
     await deps.db.putMessage({
       org: ORG,
       message: baseMessage({
         messageId: 'out',
-        direction: 'outbound',
         s3Bucket: undefined,
         s3Key: undefined
       })

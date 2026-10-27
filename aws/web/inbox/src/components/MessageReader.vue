@@ -141,12 +141,21 @@
               <!-- eslint-disable-next-line vue/no-v-html -- sanitized via DOMPurify -->
               <div v-if="htmlOf(item.m)" class="body-html" v-html="htmlOf(item.m)" />
               <div v-else class="body-text">{{ item.m.text }}</div>
-              <div v-if="(item.m.attachments || []).length" class="attachments">
+              <template v-for="(a, i) in item.m.attachments || []" :key="'img' + i">
+                <img
+                  v-if="sentImages[`${item.m.messageId}:${i}`]"
+                  class="sent-image"
+                  data-testid="sent-image"
+                  :src="sentImages[`${item.m.messageId}:${i}`]"
+                  :alt="a.filename"
+                />
+              </template>
+              <div v-if="downloads(item.m).length" class="attachments">
                 <!-- A real button, not a chip: the file has to be fetched with the
                      admin's bearer token and rebuilt client-side, so there's no
                      href to hand the browser. -->
                 <button
-                  v-for="(a, i) in item.m.attachments"
+                  v-for="{ a, i } in downloads(item.m)"
                   :key="i"
                   type="button"
                   class="attachment"
@@ -155,7 +164,7 @@
                   :title="`Hämta ${a.filename || 'bilaga'}`"
                   @click="$emit('download-attachment', { messageId: item.m.messageId, index: i, filename: a.filename })"
                 >
-                  <span aria-hidden="true">📎</span>
+                  <PaperclipIcon />
                   <span class="attachment-name">{{ a.filename || 'bilaga' }}</span>
                   <span class="attachment-meta">{{
                     attachmentBusy === `${item.m.messageId}:${i}` ? 'Hämtar…' : formatBytes(a.size)
@@ -209,9 +218,13 @@
         </button>
       </div>
 
-      <div class="composer" :class="{ 'composer-open': composerOpen }">
+      <div
+        class="composer"
+        :class="{ 'composer-open': composerOpen }"
+        @dragover.prevent
+        @drop.prevent="addFiles($event.dataTransfer.files)"
+      >
         <div class="composer-mobile-bar d-md-none">
-          <span class="topbar-spacer" />
           <button type="button" class="btn btn-ghost btn-sm" data-testid="composer-close" @click="composerOpen = false">
             ✕ Stäng
           </button>
@@ -243,55 +256,90 @@
           {{ sendError }}
         </p>
         <div class="composer-bar">
-          <span class="topbar-spacer" />
-          <button
-            v-if="mode === 'note'"
-            type="button"
-            class="btn btn-primary btn-sm"
-            data-testid="save-note"
-            :disabled="!draft.trim() || replying"
-            @click="send"
-          >
-            {{ replying ? 'Sparar…' : 'Spara anteckning' }}
-          </button>
-          <div v-else class="split-btn">
+          <div v-if="mode === 'reply' && files.length" class="attachments composer-files">
+            <span v-for="(f, i) in files" :key="i" class="attachment" data-testid="attached-file">
+              <span class="attachment-name" :title="f.name">{{ f.name }}</span>
+              <span class="attachment-meta">{{ formatBytes(f.size) }}</span>
+              <button
+                type="button"
+                class="btn-close"
+                :aria-label="`Ta bort ${f.name}`"
+                data-testid="remove-file"
+                @click="files.splice(i, 1)"
+              />
+            </span>
+            <span data-testid="attach-total" class="text-nowrap" :class="tooLarge ? 'text-danger' : 'muted'" role="status">
+              {{ formatBytes(totalBytes) || '0 B' }} / 4 MB
+            </span>
+          </div>
+          <div class="composer-actions">
             <button
+              v-if="mode === 'reply'"
               type="button"
-              class="btn btn-primary btn-sm"
-              data-testid="send-reply"
+              class="btn btn-ghost d-inline-flex align-items-center gap-1"
+              data-testid="attach-button"
+              @click="fileInput.click()"
+            >
+              <PaperclipIcon />
+              Bifoga fil
+            </button>
+            <input
+              ref="fileInput"
+              type="file"
+              multiple
+              hidden
+              data-testid="attach-input"
+              @change="addFiles($event.target.files), ($event.target.value = '')"
+            />
+            <button
+              v-if="mode === 'note'"
+              type="button"
+              class="btn btn-primary"
+              data-testid="save-note"
               :disabled="!draft.trim() || replying"
               @click="send"
             >
-              {{ replying ? 'Skickar…' : closeAfter ? 'Skicka och stäng' : 'Skicka och lämna öppen' }}
+              {{ replying ? 'Sparar…' : 'Spara anteckning' }}
             </button>
-            <button
-              type="button"
-              class="btn btn-primary btn-sm split-caret"
-              data-testid="send-menu-toggle"
-              :disabled="replying"
-              :aria-expanded="menuOpen"
-              aria-haspopup="menu"
-              aria-label="Fler alternativ för att skicka"
-              @click="menuOpen = !menuOpen"
-            >
-              <svg viewBox="0 0 12 12" aria-hidden="true" focusable="false">
-                <path
-                  d="M3 4.75 L6 7.75 L9 4.75"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
-            </button>
-            <div v-if="menuOpen" class="send-menu">
-              <button type="button" class="menu-item" data-testid="opt-close" @click="choose(true)">
-                Skicka och stäng
+            <div v-else class="split-btn">
+              <button
+                type="button"
+                class="btn btn-primary"
+                data-testid="send-reply"
+                :disabled="!draft.trim() || replying || reading || tooLarge"
+                @click="send"
+              >
+                {{ replying ? 'Skickar…' : closeAfter ? 'Skicka och stäng' : 'Skicka och lämna öppen' }}
               </button>
-              <button type="button" class="menu-item" data-testid="opt-open" @click="choose(false)">
-                Skicka och lämna öppen
+              <button
+                type="button"
+                class="btn btn-primary split-caret"
+                data-testid="send-menu-toggle"
+                :disabled="replying || tooLarge"
+                :aria-expanded="menuOpen"
+                aria-haspopup="menu"
+                aria-label="Fler alternativ för att skicka"
+                @click="menuOpen = !menuOpen"
+              >
+                <svg viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+                  <path
+                    d="M3 4.75 L6 7.75 L9 4.75"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
               </button>
+              <div v-if="menuOpen" class="send-menu">
+                <button type="button" class="menu-item" data-testid="opt-close" @click="choose(true)">
+                  Skicka och stäng
+                </button>
+                <button type="button" class="menu-item" data-testid="opt-open" @click="choose(false)">
+                  Skicka och lämna öppen
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -323,7 +371,7 @@
             type="button"
             class="btn btn-primary btn-sm"
             data-testid="confirm-send-close"
-            :disabled="replying"
+            :disabled="replying || reading"
             @click="doSend"
           >
             Skicka och stäng
@@ -361,7 +409,9 @@ const props = defineProps({
   // `${messageId}:${index}` of the attachment currently being fetched, so the
   // tapped chip can say so — on mobile the download is otherwise silent for a
   // second or two and looks like nothing happened.
-  attachmentBusy: { type: String, default: null }
+  attachmentBusy: { type: String, default: null },
+  // `${messageId}:${index}` -> data URI of a sent image; null while it loads.
+  sentImages: { type: Object, default: () => ({}) }
 })
 const emit = defineEmits([
   'move',
@@ -399,6 +449,26 @@ const menuOpen = ref(false)
 const composerOpen = ref(false) // mobile: composer hidden until opened
 const confirmOpen = ref(false) // "Skicka och stäng" confirmation dialog
 const sendError = ref('')
+const files = ref([])
+const fileInput = ref(null)
+const reading = ref(false) // files are being encoded; replying is not yet true
+// Raw bytes per reply; the API enforces the same cap.
+const ATTACHMENTS_MAX_BYTES = 4 * 1024 * 1024
+const totalBytes = computed(() => files.value.reduce((n, f) => n + f.size, 0))
+const tooLarge = computed(() => totalBytes.value > ATTACHMENTS_MAX_BYTES)
+// Dropping a file is a reply action, whichever tab was open.
+const addFiles = (list) => {
+  if (!list?.length) return
+  mode.value = 'reply'
+  files.value.push(...list)
+}
+const base64Of = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result.split(',')[1])
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
 
 watch(
   () => props.message?.messageId,
@@ -409,6 +479,7 @@ watch(
     composerOpen.value = false
     confirmOpen.value = false
     sendError.value = ''
+    files.value = []
   }
 )
 
@@ -451,7 +522,17 @@ const EyeIcon = () =>
     h('path', { d: 'M16 8s-3-5.5-8-5.5S0 8 0 8s3 5.5 8 5.5S16 8 16 8M1.173 8a13 13 0 0 1 1.66-2.043C4.12 4.668 5.88 3.5 8 3.5s3.879 1.168 5.168 2.457A13 13 0 0 1 14.828 8q-.086.13-.195.288c-.335.48-.83 1.12-1.465 1.755C11.879 11.332 10.119 12.5 8 12.5s-3.879-1.168-5.168-2.457A13 13 0 0 1 1.172 8z' }),
     h('path', { d: 'M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5M4.5 8a3.5 3.5 0 1 1 7 0 3.5 3.5 0 0 1-7 0' })
   ])
+const PaperclipIcon = () =>
+  h('svg', { viewBox: '0 0 16 16', width: 16, height: 16, fill: 'currentColor', 'aria-hidden': 'true' }, [
+    h('path', { d: 'M4.5 3a2.5 2.5 0 0 1 5 0v9a1.5 1.5 0 0 1-3 0V5a.5.5 0 0 1 1 0v7a.5.5 0 0 0 1 0V3a1.5 1.5 0 1 0-3 0v9a2.5 2.5 0 0 0 5 0V5a.5.5 0 0 1 1 0v7a3.5 3.5 0 1 1-7 0z' })
+  ])
 const initialsOf = initials
+
+// Attachments offered as buttons: everything not shown (or loading) as an image.
+const downloads = (m) =>
+  (m.attachments || [])
+    .map((a, i) => ({ a, i }))
+    .filter(({ i }) => !(`${m.messageId}:${i}` in props.sentImages))
 
 // Sanitize the HTML part (keeps inline colour, strips scripts/handlers).
 const htmlOf = (member) =>
@@ -470,9 +551,9 @@ const send = () => {
   doSend()
 }
 
-const doSend = () => {
+const doSend = async () => {
   const text = draft.value.trim()
-  if (!text) return
+  if (!text || reading.value) return
   menuOpen.value = false
   confirmOpen.value = false
   sendError.value = ''
@@ -482,6 +563,7 @@ const doSend = () => {
   const done = (ok, message) => {
     if (ok) {
       draft.value = ''
+      files.value = []
       composerOpen.value = false
       return
     }
@@ -491,7 +573,27 @@ const doSend = () => {
   if (mode.value === 'note') {
     emit('add-note', { text, done })
   } else {
-    emit('reply', { body: text, close: closeAfter.value, done })
+    let attachments = []
+    if (files.value.length) {
+      const id = props.message.messageId
+      reading.value = true
+      try {
+        attachments = await Promise.all(
+          files.value.map(async (f) => ({
+            filename: f.name,
+            contentType: f.type || 'application/octet-stream',
+            contentBase64: await base64Of(f)
+          }))
+        )
+      } catch {
+        return done(false, 'En bifogad fil gick inte att läsa. Ta bort den och försök igen.')
+      } finally {
+        reading.value = false
+      }
+      // Another thread was opened while reading; this draft is gone with it.
+      if (props.message?.messageId !== id) return
+    }
+    emit('reply', { body: text, close: closeAfter.value, attachments, done })
   }
 }
 
@@ -502,6 +604,45 @@ const choose = (close) => {
 </script>
 
 <style scoped>
+/* Files share the send bar; below ~12rem they push the buttons to a new line. */
+.composer-files {
+  flex: 1 1 12rem;
+  min-width: 0;
+  margin-top: 0;
+  align-items: center;
+}
+/* Chips and buttons share one 40px row, so attaching a file or switching tabs
+   never changes the bar's height. */
+.composer-files .attachment {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 0;
+  height: 40px;
+  padding-block: 0;
+}
+.composer-files .attachment-name {
+  max-width: 7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-left: auto;
+  height: 40px;
+}
+.composer-actions .btn {
+  height: 40px;
+  padding-block: 0;
+}
+.sent-image {
+  display: block;
+  max-height: 300px;
+  max-width: 100%;
+  margin-top: 10px;
+}
 .seen-eye {
   display: inline-flex;
   color: var(--fg-3);
@@ -539,8 +680,8 @@ const choose = (close) => {
   display: inline-flex;
 }
 .split-caret {
-  /* Vertical padding stays inherited from .btn-sm so both halves are exactly
-     the same height; only the horizontal padding is set here. */
+  /* Height comes from .composer-actions .btn, so both halves match; only the
+     horizontal padding is set here. */
   padding-inline: 9px;
   /* Seam derived from the button's foreground, so it reads on the accent fill
      in both themes rather than being a fixed black mix. */
