@@ -605,6 +605,14 @@ textarea.form-control {
   gap: 12px;
   margin-bottom: 18px;
 }
+@media (max-width: 767.98px) {
+  .msg {
+    grid-template-columns: 1fr;
+  }
+  .msg > .av {
+    display: none;
+  }
+}
 .msg .body {
   background: var(--bg-elev);
   border: 1px solid var(--border);
