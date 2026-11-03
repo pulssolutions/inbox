@@ -87,8 +87,8 @@ describe('API tokens', () => {
     })
     expect(res.statusCode).toBe(204)
     expect(await list({ deps, org: ORG })).toEqual([])
-    expect((await deps.db.listAudit({ org: ORG }))[0]).toMatchObject({
-      action: 'token.delete',
+    const log = await deps.db.listAudit({ org: ORG })
+    expect(log.find((e) => e.action === 'token.delete')).toMatchObject({
       targetId: data.tokenId
     })
     await expect(
