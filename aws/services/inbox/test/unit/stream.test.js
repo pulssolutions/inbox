@@ -140,6 +140,42 @@ describe('handleStream', () => {
     expect(content).toContain('https://inbox.example/#/m/m1')
   })
 
+  const draft = () => ({
+    pk: `${ORG}:note`,
+    sk: 'm1#2026-09-25T08:00:00Z',
+    messageId: 'm1',
+    threadId: 'm1',
+    createdAt: '2026-09-25T08:00:00Z',
+    kind: 'draft',
+    status: 'pending',
+    category: 'kurser',
+    author: 'junior@acme.example',
+    subject: 'Re: Fel på mitt konto',
+    text: 'Hej <Anna>, vi fixar det'
+  })
+
+  it('posts a proposed reply only when subscribed, through its own template, escaped', async () => {
+    await handleStream(deps, { Records: [insert(draft())] })
+    expect(webhook.posts).toHaveLength(0)
+
+    await saveSettings({
+      deps,
+      org: ORG,
+      claims,
+      body: { webhook: { onProposedReply: true, proposedTemplate: '{{author}} föreslår: {{body}} {{url}} {{category}}' } }
+    })
+    await handleStream(deps, { Records: [insert(draft())] })
+    const { content } = JSON.parse(webhook.posts[0].body)
+    expect(content).toContain('junior@acme.example föreslår: Hej &lt;Anna&gt;, vi fixar det')
+    expect(content).toContain('https://inbox.example/#/m/m1?draft=2026-09-25T08:00:00Z kurser')
+  })
+
+  it('ignores ordinary notes even when proposed replies are subscribed', async () => {
+    await saveSettings({ deps, org: ORG, claims, body: { webhook: { onProposedReply: true } } })
+    await handleStream(deps, { Records: [insert({ pk: `${ORG}:note`, sk: 'm1#t', messageId: 'm1', text: 'x' })] })
+    expect(webhook.posts).toHaveLength(0)
+  })
+
   it('ignores rows that are not messages, and non-INSERT events', async () => {
     const note = { pk: `${ORG}:note`, sk: 'm1#t', direction: 'inbound' }
     await handleStream(deps, {

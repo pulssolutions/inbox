@@ -91,12 +91,15 @@ const WEBHOOK_DEFAULTS = {
   token: '',
   onNewIssue: true,
   onReply: true,
-  onAgentReply: false
+  onAgentReply: false,
+  onProposedReply: false,
+  proposedTemplate: '{{author}}: {{body}}'
 }
 
 const state = {
   messages: [],
   notes: [],
+  drafts: [],
   admins: [],
   audit: [],
   notifyDefaults: null,
@@ -131,6 +134,7 @@ export const addTestMessage = (message) => {
 export const resetTestApi = () => {
   state.messages = seed().map((m) => ({ state: 'open', ...m }))
   state.notes = []
+  state.drafts = []
   state.notifyDefaults = null
   state.webhook = null
   state.webhookGroupMissing = false
@@ -272,7 +276,8 @@ const handle = async (input, init = {}) => {
           ({ content, ...meta }) => meta // eslint-disable-line no-unused-vars
         )
       }))
-    return jsonResponse(200, { ...indexOf(msg), status: 'read', thread, notes })
+    const drafts = state.drafts.filter((d) => d.messageId === id)
+    return jsonResponse(200, { ...indexOf(msg), status: 'read', thread, notes, drafts })
   }
   if (m && method === 'PATCH') {
     const id = decodeURIComponent(m[1])
@@ -296,11 +301,7 @@ const handle = async (input, init = {}) => {
     return jsonResponse(204, null)
   }
 
-  m = path.match(/^\/admin\/messages\/([^/]+)\/reply$/)
-  if (m && method === 'POST') {
-    const id = decodeURIComponent(m[1])
-    const orig = state.messages.find((x) => x.messageId === id)
-    if (!orig) return jsonResponse(404, { code: 'MESSAGE_NOT_FOUND' })
+  const sendReply = (orig, body) => {
     replyCounter += 1
     const outbound = {
       messageId: `reply-${replyCounter}`,
@@ -311,13 +312,58 @@ const handle = async (input, init = {}) => {
       receivedAt: new Date('2026-06-02T12:00:00Z').toISOString(),
       status: 'read',
       direction: 'outbound',
-      inReplyTo: id,
+      inReplyTo: orig.messageId,
       threadId: orig.threadId || orig.messageId,
       bodyText: body.body,
       box: 'inbox'
     }
     state.messages.push({ ...outbound, _body: { text: body.body, html: null, attachments: [] } })
-    return jsonResponse(201, outbound)
+    return outbound
+  }
+
+  m = path.match(/^\/admin\/messages\/([^/]+)\/reply$/)
+  if (m && method === 'POST') {
+    const id = decodeURIComponent(m[1])
+    const orig = state.messages.find((x) => x.messageId === id)
+    if (!orig) return jsonResponse(404, { code: 'MESSAGE_NOT_FOUND' })
+    return jsonResponse(201, sendReply(orig, body))
+  }
+
+  m = path.match(/^\/admin\/messages\/([^/]+)\/drafts$/)
+  if (m && method === 'POST') {
+    const id = decodeURIComponent(m[1])
+    const orig = state.messages.find((x) => x.messageId === id)
+    if (!orig) return jsonResponse(404, { code: 'MESSAGE_NOT_FOUND' })
+    const createdAt = new Date(2026, 5, 3, 10 + state.drafts.length).toISOString()
+    const draft = {
+      messageId: id,
+      draftId: createdAt,
+      createdAt,
+      kind: 'draft',
+      status: 'pending',
+      subject: body.subject || `Re: ${orig.subject}`,
+      text: body.body,
+      author: 'dev@acme.example',
+      authorName: 'Dev'
+    }
+    state.drafts.push(draft)
+    return jsonResponse(201, draft)
+  }
+
+  m = path.match(/^\/admin\/messages\/([^/]+)\/drafts\/([^/]+)\/(send|reject)$/)
+  if (m && method === 'POST') {
+    const orig = state.messages.find((x) => x.messageId === decodeURIComponent(m[1]))
+    const draft = state.drafts.find((d) => d.draftId === decodeURIComponent(m[2]))
+    if (!orig || !draft) return jsonResponse(404, { code: 'DRAFT_NOT_FOUND' })
+    if (draft.status !== 'pending') return jsonResponse(409, { code: 'DRAFT_NOT_PENDING' })
+    draft.resolvedBy = 'dev@acme.example'
+    if (m[3] === 'reject') {
+      Object.assign(draft, { status: 'rejected', reason: body?.reason || '' })
+      return jsonResponse(200, draft)
+    }
+    const sent = sendReply(orig, { body: body?.body ?? draft.text, subject: body?.subject || draft.subject })
+    Object.assign(draft, { status: 'sent', sentMessageId: sent.messageId })
+    return jsonResponse(201, sent)
   }
 
   m = path.match(/^\/admin\/messages\/([^/]+)\/transfer$/)

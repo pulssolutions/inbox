@@ -81,15 +81,15 @@ export const orgName = (claims, org) => {
   return (orgs && org && orgs[org]?.name) || org || ''
 }
 
+export const hasCapability = (claims, org, path) => {
+  const caps = readOrgEntry(claims, org)?.capabilities
+  const [domain, action] = String(path).split('.')
+  return Boolean(domain && action && caps?.[domain]?.[action] === true)
+}
+
 export const requireCapability = (event, org, path) => {
   const claims = requireAdmin(event, org)
-  const entry = readOrgEntry(claims, org)
-  const caps = entry?.capabilities
-  if (!caps || typeof caps !== 'object') {
-    throw new PermissionError('NO_CAP', 'Token missing capabilities for org')
-  }
-  const [domain, action] = String(path).split('.')
-  if (!domain || !action || !caps[domain] || caps[domain][action] !== true) {
+  if (!hasCapability(claims, org, path)) {
     throw new PermissionError('NO_CAP', `Missing capability ${path}`)
   }
   return claims

@@ -37,6 +37,19 @@ export const updateMessageAPI = (id, patch) =>
 export const replyAPI = (id, payload) =>
   httpPost(`/admin/messages/${encodeURIComponent(id)}/reply`, payload)
 
+export const createDraftAPI = (id, payload) =>
+  httpPost(`/admin/messages/${encodeURIComponent(id)}/drafts`, payload)
+
+const draftPath = (id, draftId) =>
+  `/admin/messages/${encodeURIComponent(id)}/drafts/${encodeURIComponent(draftId)}`
+
+// Same response shape as replyAPI; `payload` may override body/subject.
+export const sendDraftAPI = (id, draftId, payload) =>
+  httpPost(`${draftPath(id, draftId)}/send`, payload)
+
+export const rejectDraftAPI = (id, draftId, reason) =>
+  httpPost(`${draftPath(id, draftId)}/reject`, { reason })
+
 export const transferMessageAPI = (id, category) =>
   httpPost(`/admin/messages/${encodeURIComponent(id)}/transfer`, { category })
 

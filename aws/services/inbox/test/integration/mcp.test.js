@@ -204,6 +204,29 @@ describe('integration: MCP', () => {
     })
   })
 
+  it('reply as a replyApproval owner drafts instead, and get_message shows the draft', async () => {
+    await h.db.putAdmin({
+      org: ORG,
+      admin: { email: 'leader@acme.example', name: 'Leader', role: 'admin', categories: ['kurser'], replyApproval: true }
+    })
+    const r = await callTool(h, secret, 'reply', { messageId: 'm1', body: 'Förslag' })
+    expect(r.json.status).toBe('pending_approval')
+    expect(r.json.draftId).toBeTruthy()
+    expect(h.ses.replies).toHaveLength(0)
+    await h.db.updateNote({
+      org: ORG,
+      messageId: 'm1',
+      createdAt: r.json.draftId,
+      set: { status: 'rejected', reason: 'Nej' }
+    })
+    const g = await callTool(h, secret, 'get_message', { messageId: 'm1' })
+    expect(g.json.drafts).toEqual([
+      expect.objectContaining({ draftId: r.json.draftId, status: 'rejected', reason: 'Nej', text: 'Förslag' })
+    ])
+    const log = await h.db.listAudit({ org: ORG })
+    expect(log.find((e) => e.action === 'draft.create').actor.via).toBe('mcp')
+  })
+
   it('add_note, set_state, archive and assign go through the existing handlers', async () => {
     const n = await callTool(h, secret, 'add_note', {
       messageId: 'm1',

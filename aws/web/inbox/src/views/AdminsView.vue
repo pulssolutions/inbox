@@ -99,6 +99,18 @@
             />
           </div>
 
+          <div class="field">
+            <label class="form-label" for="webhook-proposedTemplate">Mall för föreslaget svar</label>
+            <p class="muted hint">Platshållare: {{ PROPOSED_HINT }}</p>
+            <textarea
+              id="webhook-proposedTemplate"
+              v-model="webhookForm.proposedTemplate"
+              class="form-control template"
+              data-testid="webhook-proposedTemplate"
+              rows="6"
+            />
+          </div>
+
           <details class="advanced">
             <summary>Avancerat</summary>
             <div class="field">
@@ -271,6 +283,10 @@
           <label class="form-label">Kategorier (kommaseparerade)</label>
           <input v-model="form.categories" class="form-control" data-testid="f-categories" placeholder="kurser, styrelse" />
         </div>
+        <div class="form-check">
+          <input id="f-reply-approval" v-model="form.replyApproval" class="form-check-input" type="checkbox" data-testid="f-reply-approval" />
+          <label class="form-check-label" for="f-reply-approval">Svar måste godkännas av en kollega</label>
+        </div>
         <div v-for="e in NOTIFY_EVENTS" :key="e.key">
           <label class="form-label">E-post: {{ e.label.toLowerCase() }}</label>
           <select
@@ -325,7 +341,8 @@ const NOTIFY_EVENTS = [
 const WEBHOOK_EVENTS = [
   { key: 'onNewIssue', label: 'Nytt ärende' },
   { key: 'onReply', label: 'Svar i ärende' },
-  { key: 'onAgentReply', label: 'Vårt svar till avsändaren' }
+  { key: 'onAgentReply', label: 'Vårt svar till avsändaren' },
+  { key: 'onProposedReply', label: 'Föreslaget svar som väntar på godkännande' }
 ]
 
 // Vue's parser reads a literal `{{` inside an interpolation as the closing
@@ -336,11 +353,15 @@ const PLACEHOLDER_HINT = [
   'subject', 'from', 'fromName', 'fromEmail', 'category', 'orgName',
   'messageId', 'threadId', 'url', 'receivedAt', 'body'
 ].map((n) => `{{${n}}}`).join(' ')
+const PROPOSED_HINT = ['author', 'subject', 'body', 'url', 'orgName', 'category']
+  .map((n) => `{{${n}}}`)
+  .join(' ')
 
 // The webhook saves on a button, so the form is a local copy rather than the
 // store's - a half-typed template should not be written on every keystroke.
 const webhookForm = reactive({
-  url: '', template: '', envelope: '', token: '', onNewIssue: true, onReply: true, onAgentReply: false
+  url: '', template: '', envelope: '', token: '',
+  onNewIssue: true, onReply: true, onAgentReply: false, onProposedReply: false, proposedTemplate: ''
 })
 
 const toChoice = (v) => (v === true ? 'on' : v === false ? 'off' : 'inherit')
@@ -361,6 +382,7 @@ const blankForm = () => ({
   name: '',
   role: 'admin',
   categories: '',
+  replyApproval: false,
   notify: { newIssue: 'inherit', reply: 'inherit' }
 })
 
@@ -448,6 +470,7 @@ const openEdit = (a) => {
     name: a.name,
     role: a.role,
     categories: (a.categories || []).join(', '),
+    replyApproval: a.replyApproval === true,
     notify: Object.fromEntries(
       NOTIFY_EVENTS.map((e) => [e.key, storedChoice(a, e.field)])
     )
@@ -467,6 +490,7 @@ const save = async () => {
     name: form.name,
     role: form.role,
     categories: form.role === 'superadmin' ? [] : parseCategories(),
+    replyApproval: form.replyApproval,
     ...Object.fromEntries(
       NOTIFY_EVENTS.map((e) => [e.field, fromChoice(form.notify[e.key])])
     )

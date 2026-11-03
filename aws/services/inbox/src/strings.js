@@ -47,6 +47,10 @@ const en = {
   noteHeading: 'New internal note',
   noteBody: (who) => `${who} added an internal note.`,
 
+  draftSubject: (who, subject) => `${who} proposes a reply: ${subject}`,
+  draftHeading: 'A reply is waiting for your approval',
+  draftBody: (who) => `${who} proposes this reply. Open the issue to send or reject it.`,
+
   // -- validation surfaced to the agent UI --
   categoryUnchanged: 'The issue is already in that category',
   unknownAuthor: 'unknown'
@@ -82,6 +86,10 @@ const sv = {
   noteSubject: (subject) => `Ny intern anteckning: ${subject}`,
   noteHeading: 'Ny intern anteckning',
   noteBody: (who) => `${who} har lagt till en intern anteckning.`,
+
+  draftSubject: (who, subject) => `${who} föreslår ett svar: ${subject}`,
+  draftHeading: 'Ett svar väntar på ditt godkännande',
+  draftBody: (who) => `${who} föreslår det här svaret. Öppna ärendet för att skicka eller avvisa det.`,
 
   categoryUnchanged: 'Ärendet ligger redan i den kategorin',
   unknownAuthor: 'okänd'

@@ -25,6 +25,7 @@ const senderOf = (parsed, message) =>
 // Whether this message is one the org asked to be told about. A reply is any
 // inbound message that is not its own thread root.
 const wanted = (webhook, message) => {
+  if (message.kind === 'draft') return webhook.onProposedReply
   if (message.direction === 'outbound') return webhook.onAgentReply
   return (message.threadId || message.messageId) === message.messageId
     ? webhook.onNewIssue
@@ -60,14 +61,17 @@ export const deliver = async ({ deps, org, message, webhook }) => {
   if (!settings.url) return { delivered: false, reason: 'not-configured' }
   if (!wanted(settings, message)) return { delivered: false, reason: 'not-subscribed' }
 
-  const { body, parsed } = await bodyOf(deps, message)
+  // A draft carries its own text; the link opens the thread on that draft.
+  const draft = message.kind === 'draft'
+  const { body, parsed } = draft ? { body: message.text, parsed: null } : await bodyOf(deps, message)
   const threadId = message.threadId || message.messageId
-  const content = renderTemplate(settings.template, {
+  const path = `/#/m/${threadId}${draft ? `?draft=${message.createdAt}` : ''}`
+  const content = renderTemplate(draft ? settings.proposedTemplate : settings.template, {
     ...message,
     orgName: message.orgName || org,
     from: senderOf(parsed, message),
     body,
-    url: deps.webBaseUrl ? `${deps.webBaseUrl}/#/m/${threadId}` : ''
+    url: deps.webBaseUrl ? `${deps.webBaseUrl}${path}` : ''
   })
 
   try {

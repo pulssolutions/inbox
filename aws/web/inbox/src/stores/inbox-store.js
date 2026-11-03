@@ -6,6 +6,9 @@ import {
   getAttachmentAPI,
   updateMessageAPI,
   replyAPI,
+  createDraftAPI,
+  sendDraftAPI,
+  rejectDraftAPI,
   addNoteAPI,
   deleteMessageAPI,
   transferMessageAPI,
@@ -267,11 +270,27 @@ export const useInboxStore = defineStore('inbox-store', {
       return getAttachmentAPI(id, index)
     },
 
-    async replyAction(id, payload) {
+    async proposeAction(id, payload) {
+      this.loading.reply = true
+      try {
+        return await createDraftAPI(id, payload)
+      } finally {
+        this.loading.reply = false
+      }
+    },
+
+    async rejectDraftAction(id, draftId, reason) {
+      return rejectDraftAPI(id, draftId, reason)
+    },
+
+    // With a draftId the approver sends that draft (payload overrides its text).
+    async replyAction(id, payload, draftId) {
       this.loading.reply = true
       this.error.reply = null
       try {
-        const out = await replyAPI(id, payload)
+        const out = draftId
+          ? await sendDraftAPI(id, draftId, payload)
+          : await replyAPI(id, payload)
         // The reply may auto-assign an unassigned issue to the replying admin.
         // Reflect the resulting assignee immediately (no reload / flicker).
         if (out && out.assignee) {

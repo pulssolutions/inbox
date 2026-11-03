@@ -131,6 +131,18 @@ describe('AdminsView (integration with fetch shim)', () => {
     expect(w.find('[data-testid="f-notify-reply"]').findAll('option')[0].text()).toContain('På')
   })
 
+  it('saves the reply-approval flag from the modal', async () => {
+    const w = mountView()
+    await flushPromises()
+    await w.find('[data-testid="add-admin"]').trigger('click')
+    await w.find('[data-testid="f-email"]').setValue('ny@acme.example')
+    await w.find('[data-testid="f-name"]').setValue('Ny')
+    await w.find('[data-testid="f-reply-approval"]').setValue(true)
+    await w.find('[data-testid="save-admin"]').trigger('click')
+    await flushPromises()
+    expect(useAdminsStore().admins.find((a) => a.email === 'ny@acme.example').replyApproval).toBe(true)
+  })
+
   it('hides the category field for superadmins', async () => {
     const w = mountView()
     await flushPromises()
@@ -158,6 +170,18 @@ describe('AdminsView (integration with fetch shim)', () => {
       expect(useSettingsStore().webhook).toMatchObject({
         url: 'https://3.basecamp.com/1/i/t/lines',
         template: '<b>{{subject}}</b>'
+      })
+    })
+
+    it('saves the proposed-reply toggle and template', async () => {
+      const w = await openSettings()
+      await w.find('[data-testid="webhook-onProposedReply"]').setValue('on')
+      await w.find('[data-testid="webhook-proposedTemplate"]').setValue('{{author}}: {{body}}')
+      await w.find('[data-testid="webhook-save"]').trigger('click')
+      await flushPromises()
+      expect(useSettingsStore().webhook).toMatchObject({
+        onProposedReply: true,
+        proposedTemplate: '{{author}}: {{body}}'
       })
     })
 
