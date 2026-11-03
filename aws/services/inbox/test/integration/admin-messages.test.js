@@ -205,6 +205,11 @@ describe('integration: admin messages', () => {
     expect(parseBody(sent).sentBy).toBe('boss@acme.example')
   })
 
+  it('a malformed percent-escape in a proxied path is a 404, not a 500', async () => {
+    const res = await h.handler(apiEvent({ method: 'GET', path: '/admin/messages/%E0%A4%A', claims: adminClaims(ORG), routeTemplate: '/admin/{proxy+}' }))
+    expect(res.statusCode).toBe(404)
+  })
+
   it('returns CORS headers on every response', async () => {
     const res = await h.handler(apiEvent({ method: 'GET', path: '/admin/messages', claims: adminClaims(ORG) }))
     expect(res.headers['access-control-allow-origin']).toBe('*')

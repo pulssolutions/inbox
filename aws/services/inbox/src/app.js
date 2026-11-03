@@ -77,11 +77,16 @@ const matchAdminRoute = (event, routeKeys) => {
     const match = rawPath.match(re)
     if (match) {
       // A draft id is an ISO timestamp and arrives percent-encoded from the
-      // client; a parameter is the decoded value.
-      const params = Object.fromEntries(
-        Object.entries(match.groups || {}).map(([k, v]) => [k, decodeURIComponent(v)])
-      )
-      return { routeKey: key, pathParameters: params }
+      // client; a parameter is the decoded value. A malformed escape is no
+      // route at all rather than a 500.
+      try {
+        const params = Object.fromEntries(
+          Object.entries(match.groups || {}).map(([k, v]) => [k, decodeURIComponent(v)])
+        )
+        return { routeKey: key, pathParameters: params }
+      } catch {
+        return null
+      }
     }
   }
   return null
