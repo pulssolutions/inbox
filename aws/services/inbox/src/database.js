@@ -12,6 +12,7 @@ import {
   messageKey,
   adminKey,
   settingsKey,
+  tokenKey,
   noteKey,
   notePrefix,
   seenKey,
@@ -465,6 +466,48 @@ export class Database {
       indexName: 'gsi1'
     })
     return items.map(stripInternal)
+  }
+
+  // ---- API tokens -------------------------------------------------------
+
+  async putToken({ org, token }) {
+    await this._put({
+      ...tokenKey(org, token.tokenId),
+      gsi1pk: `token#${token.hash}`,
+      gsi1sk: org,
+      ...token,
+      org
+    })
+  }
+
+  async listTokens({ org }) {
+    const items = await this._query({ pkAttr: 'pk', pkValue: `${org}:token` })
+    return items.map(stripInternal)
+  }
+
+  async getToken({ org, tokenId }) {
+    return stripInternal(await this._get(tokenKey(org, tokenId)))
+  }
+
+  async getTokenByHash({ hash }) {
+    const [item] = await this._query({
+      pkAttr: 'gsi1pk',
+      pkValue: `token#${hash}`,
+      indexName: 'gsi1'
+    })
+    return stripInternal(item) ?? null
+  }
+
+  async touchToken({ org, tokenId, lastUsedAt }) {
+    await this._updateAttributes({
+      key: tokenKey(org, tokenId),
+      set: { lastUsedAt },
+      condition: 'attribute_exists(pk)'
+    })
+  }
+
+  async deleteToken({ org, tokenId }) {
+    await this._delete(tokenKey(org, tokenId))
   }
 
   // ---- org settings -----------------------------------------------------

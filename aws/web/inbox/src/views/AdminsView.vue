@@ -154,6 +154,57 @@
           </p>
         </template>
       </section>
+
+      <section v-if="session.can('admins.write')" class="tokens" data-testid="tokens">
+        <h2>API-nycklar</h2>
+        <p class="muted">
+          Låter en AI-agent (MCP) läsa och svara i inkorgen som den admin nyckeln
+          tillhör. Visas en gång - kopiera den direkt.
+        </p>
+        <table v-if="tokens.length" class="admin-table">
+          <thead>
+            <tr>
+              <th>Namn</th>
+              <th>Admin</th>
+              <th>Senast använd</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="t in tokens" :key="t.tokenId" data-testid="token-row">
+              <td>{{ t.name }}</td>
+              <td class="muted">{{ t.owner }}</td>
+              <td class="muted">{{ t.lastUsedAt ? formatDateTime(t.lastUsedAt) : '—' }}</td>
+              <td class="nowrap">
+                <button type="button" class="btn btn-ghost btn-sm" data-testid="token-delete" @click="deleteToken(t)">
+                  Ta bort
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="token-form">
+          <input v-model="tokenForm.name" class="form-control" placeholder="Namn" data-testid="token-name" />
+          <select v-model="tokenForm.owner" class="form-control" data-testid="token-owner">
+            <option value="" disabled>Admin</option>
+            <option v-for="a in store.admins" :key="a.email" :value="a.email">{{ a.name }}</option>
+          </select>
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            data-testid="token-create"
+            :disabled="!tokenForm.name.trim() || !tokenForm.owner"
+            @click="createToken"
+          >
+            Skapa
+          </button>
+        </div>
+        <p v-if="tokenError" class="form-error">Kunde inte spara.</p>
+        <div v-if="newSecret" class="token-secret">
+          <code data-testid="token-secret">{{ newSecret }}</code>
+          <button type="button" class="btn btn-ghost btn-sm" @click="copySecret">Kopiera</button>
+        </div>
+      </section>
     </div>
 
     <div v-else class="page-body">
@@ -250,11 +301,15 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useAdminsStore } from '@/stores/admins-store'
 import { useSettingsStore } from '@/stores/settings-store'
+import { useAdminSessionStore } from '@/stores/admin-session-store'
+import { loadTokensAPI, createTokenAPI, deleteTokenAPI } from '@/services/tokens-service'
+import { formatDateTime } from '@/helpers/format'
 import Modal from '@/components/Modal.vue'
 import Spinner from '@/components/Spinner.vue'
 
 const store = useAdminsStore()
 const settings = useSettingsStore()
+const session = useAdminSessionStore()
 const tab = ref('admins')
 const modalOpen = ref(false)
 const editing = ref(false)
@@ -311,8 +366,39 @@ const blankForm = () => ({
 
 const form = reactive(blankForm())
 
+// API tokens are a small list with no other reader, so they live here rather
+// than in a store.
+const tokens = ref([])
+const tokenForm = reactive({ name: '', owner: '' })
+const newSecret = ref('')
+const tokenError = ref(false)
+
+const createToken = async () => {
+  tokenError.value = false
+  try {
+    const created = await createTokenAPI({ ...tokenForm })
+    newSecret.value = created.secret
+    tokens.value.push(created)
+    Object.assign(tokenForm, { name: '', owner: '' })
+  } catch {
+    tokenError.value = true
+  }
+}
+
+const deleteToken = async (t) => {
+  if (!window.confirm(`Ta bort nyckeln "${t.name}"?`)) return
+  await deleteTokenAPI(t.tokenId)
+  tokens.value = tokens.value.filter((x) => x.tokenId !== t.tokenId)
+  newSecret.value = ''
+}
+
+const copySecret = () => navigator.clipboard?.writeText(newSecret.value)
+
 onMounted(async () => {
   store.loadAdminsAction()
+  if (session.can('admins.write')) {
+    loadTokensAPI().then((list) => (tokens.value = list)).catch(() => (tokenError.value = true))
+  }
   try {
     await settings.loadSettingsAction()
   } catch {
@@ -483,6 +569,28 @@ const onDelete = async (a) => {
   cursor: pointer;
   font-size: 0.86rem;
   color: var(--fg-2);
+}
+.tokens {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  max-width: 640px;
+}
+.tokens h2 {
+  font-size: 15px;
+  margin: 0 0 4px;
+}
+.token-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.token-secret {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  word-break: break-all;
 }
 .webhook-actions {
   display: flex;

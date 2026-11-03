@@ -12,6 +12,7 @@ import { Webhook } from './webhook.js'
 import { createApp } from './app.js'
 import { runNag } from './nag.js'
 import { handleStream } from './stream.js'
+import { handleMcp } from './mcp.js'
 
 let appInstance
 
@@ -82,6 +83,9 @@ export const handler = async (event, context = {}) => {
       logger.info({ failures: result.batchItemFailures.length }, 'stream batch')
       return result
     }
+    // MCP clients carry an API token, not a Cognito JWT; the route has no
+    // authorizer and the token is verified here.
+    if (event?.routeKey === 'POST /mcp') return await handleMcp(getApp(), event)
     return await getApp().handle(event)
   } catch (err) {
     logger.error(err, 'unhandled')

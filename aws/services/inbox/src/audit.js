@@ -3,7 +3,8 @@
 
 const actorOf = (claims) => ({
   email: claims?.email || '',
-  name: claims?.name || claims?.email || ''
+  name: claims?.name || claims?.email || '',
+  ...(claims?.via ? { via: claims.via } : {})
 })
 
 export const recordAudit = async (

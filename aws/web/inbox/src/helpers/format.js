@@ -53,6 +53,8 @@ const AUDIT_LABELS = {
   // raw English key in an otherwise Swedish UI.
   assign: 'Tilldelade',
   update: 'Uppdaterade',
+  'token.create': 'API-nyckel skapad',
+  'token.delete': 'API-nyckel borttagen',
   'admin.create': 'Admin skapad',
   'admin.update': 'Admin ändrad',
   'admin.delete': 'Admin borttagen'

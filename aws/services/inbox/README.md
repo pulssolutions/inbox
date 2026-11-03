@@ -29,6 +29,7 @@ no per-tenant infrastructure.
 | Admin | `{org}:admin` | email |
 | Audit | `{org}:audit` | `{ts}#{id}` |
 | Settings | `{org}:settings` | group (`notify`) |
+| API token | `{org}:token` | tokenId (gsi1: `token#{sha256}`) |
 
 `gsi1` does two jobs. For messages, `{org}:message:{box}` keyed by
 `{lastActivityAt}#{id}` — a descending query is the inbox list, and bumping
@@ -55,6 +56,8 @@ All routes are capability-gated from the signed claim.
 | `DELETE /admin/messages/{id}` (archived only) | `inbox.write` |
 | `GET/POST/PATCH/DELETE /admin/admins` | `admins.*` |
 | `GET /admin/audit` | `audit.read` |
+| `GET/POST/DELETE /admin/tokens` | `admins.write` |
+| `POST /mcp` (API token, no authorizer; see `docs/mcp.md`) | the owner's |
 | `GET /admin/settings` | `inbox.read` |
 | `PATCH /admin/settings` (`notifyDefaults`) | `admins.write` |
 

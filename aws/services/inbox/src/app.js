@@ -5,6 +5,7 @@ import * as messages from './messages/admin.js'
 import * as admins from './admins/admin.js'
 import * as audit from './audit/handler.js'
 import * as settings from './settings/admin.js'
+import * as tokens from './tokens/admin.js'
 
 const wrapAdmin = (cap, fn) => async (ctx) => {
   const claims = requireCapability(ctx.event, ctx.org, cap)
@@ -35,6 +36,10 @@ export const buildRoutes = () => ({
   'DELETE /admin/admins/{email}': wrapAdmin('admins.delete', admins.remove),
 
   'GET /admin/audit': wrapAdmin('audit.read', audit.list),
+
+  'GET /admin/tokens': wrapAdmin('admins.write', tokens.list),
+  'POST /admin/tokens': wrapAdmin('admins.write', tokens.create),
+  'DELETE /admin/tokens/{tokenId}': wrapAdmin('admins.write', tokens.remove),
 
   // Superadmin either way: the only screen that renders this is the Admins
   // page, itself gated on admins.read, so a wider read reaches nobody who
