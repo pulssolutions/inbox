@@ -29,6 +29,13 @@ const validateCreate = (body) => {
     throw new ValidationError('ROLE_INVALID', 'role must be superadmin or admin')
   }
   assertNotifyFlags(body)
+  assertReplyApproval(body)
+}
+
+const assertReplyApproval = (body) => {
+  if (body?.replyApproval !== undefined && typeof body.replyApproval !== 'boolean') {
+    throw new ValidationError('REPLY_APPROVAL_INVALID', 'replyApproval must be a boolean')
+  }
 }
 
 // Per-admin notification choices. `null` means "no choice" — the org default
@@ -90,6 +97,7 @@ export const create = async ({ deps, org, body, claims }) => {
     categories: normalizeCategories(body.role, body.categories),
     notifyNewIssue: body.notifyNewIssue ?? null,
     notifyReply: body.notifyReply ?? null,
+    replyApproval: body.replyApproval === true,
     active: true,
     addedBy: claims?.email || claims?.name || 'okänd'
   }
@@ -121,10 +129,12 @@ export const update = async ({ deps, org, pathParameters, body, claims }) => {
     throw new ValidationError('ROLE_INVALID', 'role must be superadmin or admin')
   }
   assertNotifyFlags(body)
+  assertReplyApproval(body)
   const next = {
     ...existing,
     ...(body?.name !== undefined ? { name: body.name } : {}),
     ...(body?.active !== undefined ? { active: body.active } : {}),
+    ...(body?.replyApproval !== undefined ? { replyApproval: body.replyApproval } : {}),
     role,
     categories: normalizeCategories(
       role,

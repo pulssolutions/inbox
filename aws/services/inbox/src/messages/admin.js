@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { NotFoundError, ValidationError } from '../errors.js'
+import { ConflictError, NotFoundError, ValidationError } from '../errors.js'
 import { allowedCategories, assertCategoryAllowed, orgName } from '../auth.js'
 import { recordAudit } from '../audit.js'
 import { notifyRecipients } from '../notify.js'
@@ -223,7 +223,9 @@ export const detail = async ({ deps, org, pathParameters, claims }) => {
 
   const seen = await deps.db.listSeen({ org, threadId: root })
 
-  const notes = await deps.db.listNotesByMessage({ org, messageId })
+  const rows = await deps.db.listNotesByMessage({ org, messageId })
+  const notes = rows.filter((n) => n.kind !== 'draft')
+  const drafts = rows.filter((n) => n.kind === 'draft')
 
   // Label replies and notes with the writing admin's display name (resolved
   // here so historical rows that only stored an email also get a name).
@@ -249,7 +251,14 @@ export const detail = async ({ deps, org, pathParameters, claims }) => {
     seenBy: seenBy(n.createdAt, n.author)
   }))
 
-  return { ...message, status, thread: threadNamed, notes: notesNamed }
+  const draftsNamed = drafts.map((d) => ({
+    ...d,
+    draftId: d.createdAt,
+    authorName: displayName(names, d.author),
+    ...(d.resolvedBy && { resolvedByName: displayName(names, d.resolvedBy) })
+  }))
+
+  return { ...message, status, thread: threadNamed, notes: notesNamed, drafts: draftsNamed }
 }
 
 export const updateStatus = async ({ deps, org, pathParameters, body, claims }) => {
@@ -351,7 +360,7 @@ const notifyAssignee = async (deps, { org, claims, message, assignee }) => {
 // body once the actor's display name is resolved.
 const notifyColleagues = async (
   deps,
-  { org, claims, category, root, subject, heading, makeParagraphs }
+  { org, claims, category, root, subject, heading, makeParagraphs, ctaUrl }
 ) => {
   if (!deps.ses?.sendNotification) return
   let admins
@@ -386,7 +395,7 @@ const notifyColleagues = async (
         heading,
         paragraphs,
         // Hash route: the web app serves message deep-links at /#/m/:id.
-        ctaUrl: deps.webBaseUrl ? `${deps.webBaseUrl}/#/m/${root}` : undefined,
+        ctaUrl: deps.webBaseUrl ? `${deps.webBaseUrl}/#/m/${root}${ctaUrl || ''}` : undefined,
         ctaLabel: strings().ctaOpenIssue
       })
     } catch (e) {
@@ -637,13 +646,21 @@ const replyAttachments = (list) => {
   return files
 }
 
-export const reply = async ({ deps, org, pathParameters, body, claims }) => {
-  const messageId = pathParameters?.messageId
-  const original = await requireMessage(deps, org, messageId, claims)
-
+const requireBody = (body) => {
   if (!body || typeof body.body !== 'string' || body.body.trim().length === 0) {
     throw new ValidationError('REPLY_BODY_REQUIRED', 'Reply body required')
   }
+}
+
+export const reply = async ({ deps, org, pathParameters, body, claims }) => {
+  const original = await requireMessage(deps, org, pathParameters?.messageId, claims)
+  requireBody(body)
+  return sendReply(deps, { org, claims, original, body })
+}
+
+// Mail the reply and record it. Shared by a direct reply and an approved draft;
+// `audit` is merged into the reply entry's meta.
+const sendReply = async (deps, { org, claims, original, body, audit = {} }) => {
   const attachments = replyAttachments(body.attachments ?? [])
 
   const subject = body.subject || `Re: ${original.subject || ''}`
@@ -735,7 +752,7 @@ export const reply = async ({ deps, org, pathParameters, body, claims }) => {
     targetType: 'message',
     targetId: original.messageId,
     targetLabel: original.subject || '',
-    meta: { to }
+    meta: { to, ...audit }
   })
 
   // Auto-assign an unassigned issue to the replying admin (self-assign → no
@@ -762,6 +779,130 @@ export const reply = async ({ deps, org, pathParameters, body, claims }) => {
   await notifyReplyColleagues(deps, { org, claims, original })
 
   return { statusCode: 201, data: { ...outbound, assignee } }
+}
+
+const requireDraft = async (deps, org, { messageId, draftId }) => {
+  const draft = await deps.db.getNote({ org, messageId, createdAt: draftId })
+  if (!draft || draft.kind !== 'draft') {
+    throw new NotFoundError('DRAFT_NOT_FOUND', `Draft ${draftId} not found`)
+  }
+  return draft
+}
+
+const requirePending = (draft) => {
+  if (draft.status !== 'pending') {
+    throw new ConflictError('DRAFT_NOT_PENDING', `Draft is ${draft.status}`)
+  }
+}
+
+const resolveDraft = (deps, org, draft, claims, set) =>
+  deps.db.updateNote({
+    org,
+    messageId: draft.messageId,
+    createdAt: draft.createdAt,
+    set: { ...set, resolvedBy: claims?.email || '', resolvedAt: new Date().toISOString() }
+  })
+
+export const createDraft = async ({ deps, org, pathParameters, body, claims }) => {
+  const messageId = pathParameters?.messageId
+  const message = await requireMessage(deps, org, messageId, claims)
+  requireBody(body)
+  const author = claims?.email || claims?.name || strings().unknownAuthor
+  const draft = await deps.db.putNote({
+    org,
+    note: {
+      messageId,
+      kind: 'draft',
+      status: 'pending',
+      subject: body.subject || `Re: ${message.subject || ''}`,
+      text: body.body,
+      author,
+      // Carried on the row so the webhook can link and label it without a lookup.
+      threadId: message.threadId || message.messageId,
+      category: message.category
+    }
+  })
+  await recordAudit(deps, {
+    org,
+    claims,
+    action: 'draft.create',
+    targetType: 'message',
+    targetId: messageId,
+    targetLabel: message.subject || '',
+    meta: { draftId: draft.createdAt }
+  })
+  const me = await deps.db.getAdmin({ org, email: author })
+  const who = me?.name || claims?.name || author
+  await notifyColleagues(deps, {
+    org,
+    claims,
+    category: message.category,
+    root: draft.threadId,
+    subject: strings().draftSubject(who, message.subject || ''),
+    heading: strings().draftHeading,
+    makeParagraphs: () => [strings().draftBody(who), body.body],
+    ctaUrl: `?draft=${draft.createdAt}`
+  })
+  return { statusCode: 201, data: { ...draft, draftId: draft.createdAt, authorName: who } }
+}
+
+export const sendDraft = async ({ deps, org, pathParameters, body, claims }) => {
+  const original = await requireMessage(deps, org, pathParameters?.messageId, claims)
+  const draft = await requireDraft(deps, org, pathParameters)
+  requirePending(draft)
+  const override = body?.body !== undefined ? body : {}
+  if (body?.body !== undefined) requireBody(body)
+  const sent = await sendReply(deps, {
+    org,
+    claims,
+    original,
+    body: { body: override.body ?? draft.text, subject: body?.subject || draft.subject },
+    audit: { draftId: draft.createdAt, proposedBy: draft.author }
+  })
+  await resolveDraft(deps, org, draft, claims, {
+    status: 'sent',
+    sentMessageId: sent.data.messageId
+  })
+  return sent
+}
+
+export const rejectDraft = async ({ deps, org, pathParameters, body, claims }) => {
+  const message = await requireMessage(deps, org, pathParameters?.messageId, claims)
+  const draft = await requireDraft(deps, org, pathParameters)
+  requirePending(draft)
+  const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''
+  const updated = await resolveDraft(deps, org, draft, claims, { status: 'rejected', reason })
+  await recordAudit(deps, {
+    org,
+    claims,
+    action: 'draft.reject',
+    targetType: 'message',
+    targetId: draft.messageId,
+    targetLabel: message.subject || '',
+    meta: { draftId: draft.createdAt, proposedBy: draft.author, reason }
+  })
+  return { ...updated, draftId: updated.createdAt }
+}
+
+// Author only: anyone else gets the same 404 as a draft that does not exist.
+export const deleteDraft = async ({ deps, org, pathParameters, claims }) => {
+  const message = await requireMessage(deps, org, pathParameters?.messageId, claims)
+  const draft = await requireDraft(deps, org, pathParameters)
+  if (draft.author !== claims?.email) {
+    throw new NotFoundError('DRAFT_NOT_FOUND', `Draft ${draft.createdAt} not found`)
+  }
+  requirePending(draft)
+  await deps.db.deleteNote({ org, messageId: draft.messageId, createdAt: draft.createdAt })
+  await recordAudit(deps, {
+    org,
+    claims,
+    action: 'draft.delete',
+    targetType: 'message',
+    targetId: draft.messageId,
+    targetLabel: message.subject || '',
+    meta: { draftId: draft.createdAt }
+  })
+  return { statusCode: 204 }
 }
 
 // Org admins available as assignees (any inbox admin may assign to a colleague).

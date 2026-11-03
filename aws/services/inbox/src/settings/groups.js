@@ -17,6 +17,15 @@ const DEFAULT_TEMPLATE = [
   '</tbody></table>'
 ].join('\n')
 
+// A colleague's proposed reply, waiting for someone with send rights.
+const DEFAULT_PROPOSED_TEMPLATE = [
+  '<table><tbody>',
+  '<tr><td><a href="{{url}}">{{category}}</a></td><td>{{subject}}</td></tr>',
+  '<tr><td><b>Förslag från:</b></td><td>{{author}}</td></tr>',
+  '<tr><td colspan="2"><blockquote>{{body}}</blockquote></td></tr>',
+  '</tbody></table>'
+].join('\n')
+
 // Basecamp Campfire and Discord; Slack and Teams want {"text":"{{content}}"}.
 const DEFAULT_ENVELOPE = '{"content":"{{content}}"}'
 
@@ -27,7 +36,9 @@ export const WEBHOOK_DEFAULTS = {
   token: '',
   onNewIssue: true,
   onReply: true,
-  onAgentReply: false
+  onAgentReply: false,
+  onProposedReply: false,
+  proposedTemplate: DEFAULT_PROPOSED_TEMPLATE
 }
 
 const asObject = (value, code, label) => {
@@ -65,8 +76,8 @@ const validateWebhook = (webhook) => {
   }
   // An empty url is how the webhook is turned off, so it is not a bad one.
   if (webhook.url) validateWebhookUrl(webhook.url)
-  if (webhook.template !== undefined) {
-    const unknown = unknownPlaceholders(webhook.template)
+  for (const template of [webhook.template, webhook.proposedTemplate]) {
+    const unknown = unknownPlaceholders(template)
     if (unknown.length) {
       throw new ValidationError('WEBHOOK_INVALID', `Unknown placeholder ${unknown.join(', ')}`)
     }

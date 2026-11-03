@@ -67,6 +67,8 @@ export const PLACEHOLDERS = {
   threadId: (m) => m.threadId || m.messageId || '',
   url: (m) => m.url || '',
   receivedAt: (m) => m.receivedAt || '',
+  // The admin who proposed a reply draft; blank for a message.
+  author: (m) => m.author || '',
   body: (m) => truncate(reflow(m.body || ''), BODY_LIMIT)
 }
 

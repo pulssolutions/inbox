@@ -31,6 +31,21 @@ describe('orgEntry', () => {
     __setDocClient(null)
   })
 
+  it('every admin may propose; replyApproval removes send for any role', () => {
+    expect(orgEntry({ role: 'admin' }, 'X').capabilities.inbox).toEqual({
+      read: true,
+      write: true,
+      send: true,
+      propose: true
+    })
+    for (const role of ['admin', 'superadmin']) {
+      expect(orgEntry({ role, replyApproval: true }, 'X').capabilities.inbox).toMatchObject({
+        send: false,
+        propose: true
+      })
+    }
+  })
+
   it('gives a superadmin every capability and all categories', () => {
     const e = orgEntry({ role: 'superadmin' }, 'X')
     expect(e.capabilities.admins).toEqual({

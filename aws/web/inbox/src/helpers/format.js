@@ -49,6 +49,9 @@ const AUDIT_LABELS = {
   delete: 'Tog bort',
   note: 'Anteckning',
   transfer: 'Flyttade',
+  'draft.create': 'Föreslog svar',
+  'draft.reject': 'Avvisade förslag',
+  'draft.delete': 'Tog bort förslag',
   // The API emits these from updateStatus(); without them the log printed the
   // raw English key in an otherwise Swedish UI.
   assign: 'Tilldelade',

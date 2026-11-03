@@ -119,7 +119,7 @@ describe('API tokens', () => {
       })
       expect(JSON.parse(r.claims.orgs)).toEqual({
         acme: {
-          capabilities: { inbox: { read: true, write: true, send: true } },
+          capabilities: { inbox: { read: true, write: true, send: true, propose: true } },
           categories: ['kurser'],
           name: 'Acme BK',
           active: true

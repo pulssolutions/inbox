@@ -389,6 +389,18 @@ export class Database {
     return { ...note, createdAt }
   }
 
+  async getNote({ org, messageId, createdAt }) {
+    return stripInternal(await this._get(noteKey(org, messageId, createdAt)))
+  }
+
+  async updateNote({ org, messageId, createdAt, set }) {
+    return this._updateAttributes({ key: noteKey(org, messageId, createdAt), set })
+  }
+
+  async deleteNote({ org, messageId, createdAt }) {
+    await this._delete(noteKey(org, messageId, createdAt))
+  }
+
   async listNotesByMessage({ org, messageId }) {
     const items = await this._query({
       pkAttr: 'pk',

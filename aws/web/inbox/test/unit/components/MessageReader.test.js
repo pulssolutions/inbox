@@ -438,6 +438,69 @@ describe('MessageReader', () => {
     expect(notes[0].text()).toContain('ring upp')
   })
 
+  const draft = (over = {}) => ({
+    draftId: '2026-06-03T10:00:00Z',
+    createdAt: '2026-06-03T10:00:00Z',
+    kind: 'draft',
+    status: 'pending',
+    text: 'Hej Anna, kursen börjar i augusti.',
+    author: 'junior@acme.example',
+    authorName: 'Junior',
+    ...over
+  })
+
+  describe('reply drafts', () => {
+    it('renders a draft card with author, text and status', () => {
+      const w = mount(MessageReader, { props: { message: message({ drafts: [draft({ status: 'rejected', reason: 'För kort' })] }) } })
+      const card = w.find('[data-testid="draft"]')
+      expect(card.text()).toContain('Junior')
+      expect(card.text()).toContain('kursen börjar i augusti')
+      expect(card.find('[data-testid="draft-status"]').text()).toBe('Avvisat')
+      expect(card.text()).toContain('För kort')
+      expect(card.find('[data-testid="draft-approve"]').exists()).toBe(false)
+    })
+
+    it('without send rights the composer only offers Send for approval', async () => {
+      const w = mount(MessageReader, { props: { message: message(), canSend: false } })
+      expect(w.find('[data-testid="send-reply"]').exists()).toBe(false)
+      await w.find('[data-testid="reply-body"]').setValue('Förslag')
+      await w.find('[data-testid="propose"]').trigger('click')
+      expect(w.emitted('propose')[0][0]).toMatchObject({ body: 'Förslag' })
+      expect(w.emitted('reply')).toBeUndefined()
+    })
+
+    it('approve prefills the composer and the send carries the draft id', async () => {
+      const w = mount(MessageReader, { props: { message: message({ drafts: [draft()] }) } })
+      await w.find('[data-testid="draft-approve"]').trigger('click')
+      expect(w.find('[data-testid="reply-body"]').element.value).toBe('Hej Anna, kursen börjar i augusti.')
+      await w.find('[data-testid="reply-body"]').setValue('Hej Anna, kursen börjar i september.')
+      await w.find('[data-testid="send-reply"]').trigger('click')
+      await w.find('[data-testid="confirm-send-close"]').trigger('click')
+      expect(w.emitted('reply')[0][0]).toMatchObject({
+        body: 'Hej Anna, kursen börjar i september.',
+        draftId: '2026-06-03T10:00:00Z'
+      })
+    })
+
+    it('reject asks for a reason and emits it', async () => {
+      const prompt = vi.spyOn(window, 'prompt').mockReturnValue('Fel ton')
+      const w = mount(MessageReader, { props: { message: message({ drafts: [draft()] }) } })
+      await w.find('[data-testid="draft-reject"]').trigger('click')
+      expect(w.emitted('reject-draft')[0][0]).toEqual({ draftId: '2026-06-03T10:00:00Z', reason: 'Fel ton' })
+      prompt.mockReturnValue(null)
+      await w.find('[data-testid="draft-reject"]').trigger('click')
+      expect(w.emitted('reject-draft')).toHaveLength(1)
+      prompt.mockRestore()
+    })
+
+    it('the deep-linked draft is marked', () => {
+      const w = mount(MessageReader, {
+        props: { message: message({ drafts: [draft()] }), highlightDraft: '2026-06-03T10:00:00Z' }
+      })
+      expect(w.find('[data-testid="draft"]').classes()).toContain('draft-focus')
+    })
+  })
+
   it('the note tab emits add-note instead of reply', async () => {
     const w = mount(MessageReader, { props: { message: message() } })
     await w.find('[data-testid="tab-note"]').trigger('click')

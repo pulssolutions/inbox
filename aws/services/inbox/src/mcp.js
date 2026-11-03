@@ -6,6 +6,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { z } from 'zod'
 import { resolveToken } from './tokens/admin.js'
+import { hasCapability } from './auth.js'
 
 const messageId = z
   .string()
@@ -67,7 +68,7 @@ const TOOLS = {
     { messageId },
     'GET /admin/messages/{messageId}',
     (a) => ({ pathParameters: { messageId: a.messageId } }),
-    ({ thread, notes, ...m }) => ({
+    ({ thread, notes, drafts = [], ...m }) => ({
       ...m,
       thread: thread.map(threadMember),
       notes: notes.map(({ text, author, authorName, createdAt }) => ({
@@ -75,24 +76,33 @@ const TOOLS = {
         author,
         authorName,
         createdAt
+      })),
+      drafts: drafts.map(({ draftId, status, reason, text, author, createdAt }) => ({
+        draftId,
+        status,
+        reason: reason ?? null,
+        text,
+        author,
+        createdAt
       }))
     })
   ],
   reply: [
-    'Email a reply to the sender, from the category address',
+    'Email a reply to the sender, from the category address. An owner whose replies need approval gets a draft back instead (status pending_approval)',
     { messageId, body: z.string(), subject: z.string().optional() },
-    'POST /admin/messages/{messageId}/reply',
+    // Without send rights the same input becomes a draft for a colleague.
+    ({ org, claims }) =>
+      hasCapability(claims, org, 'inbox.send')
+        ? 'POST /admin/messages/{messageId}/reply'
+        : 'POST /admin/messages/{messageId}/drafts',
     (a) => ({
       pathParameters: { messageId: a.messageId },
       body: { body: a.body, subject: a.subject }
     }),
-    ({ messageId: id, to, subject, receivedAt, assignee }) => ({
-      messageId: id,
-      to,
-      subject,
-      receivedAt,
-      assignee
-    })
+    ({ kind, draftId, messageId: id, to, subject, receivedAt, assignee }) =>
+      kind === 'draft'
+        ? { status: 'pending_approval', draftId }
+        : { messageId: id, to, subject, receivedAt, assignee }
   ],
   add_note: [
     'Add an internal note, visible to admins only',
@@ -140,10 +150,11 @@ const buildServer = (app, { org, claims }) => {
   const server = new McpServer({ name: 'inbox', version: '1.0.0' })
   for (const [
     name,
-    [description, inputSchema, routeKey, toRequest, shape]
+    [description, inputSchema, route, toRequest, shape]
   ] of Object.entries(TOOLS)) {
     server.registerTool(name, { description, inputSchema }, async (args) => {
       const { query, pathParameters = {}, body } = toRequest(args)
+      const routeKey = typeof route === 'function' ? route({ org, claims }) : route
       const [method] = routeKey.split(' ')
       const res = await app.handle({
         routeKey,

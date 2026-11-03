@@ -174,6 +174,43 @@
             </div>
           </div>
 
+          <!-- proposed reply, waiting for (or past) a colleague's approval -->
+          <div
+            v-else-if="item.type === 'draft'"
+            :id="`draft-${item.d.draftId}`"
+            class="msg note draft"
+            :class="{ 'draft-focus': item.d.draftId === highlightDraft }"
+            data-testid="draft"
+            :data-draft-id="item.d.draftId"
+          >
+            <span class="av">✍️</span>
+            <div class="body">
+              <div class="body-head">
+                <b>{{ item.d.authorName || item.d.author }}</b>
+                <span class="badge" :class="DRAFT_BADGE[item.d.status]" data-testid="draft-status">
+                  {{ DRAFT_LABEL[item.d.status] || item.d.status }}
+                </span>
+                <span class="muted">{{ formatDateTime(item.d.createdAt) }}</span>
+                <span class="topbar-spacer" />
+                <span v-if="canSend && item.d.status === 'pending'" class="draft-actions">
+                  <button type="button" class="btn btn-primary btn-sm" data-testid="draft-approve" @click="approve(item.d)">
+                    Godkänn
+                  </button>
+                  <button type="button" class="btn btn-ghost btn-sm btn-delete" data-testid="draft-reject" @click="reject(item.d)">
+                    Avvisa
+                  </button>
+                </span>
+              </div>
+              <div class="body-text">{{ item.d.text }}</div>
+              <p v-if="item.d.status === 'rejected' && item.d.reason" class="muted draft-reason">
+                Anledning: {{ item.d.reason }}
+              </p>
+              <p v-else-if="item.d.status !== 'pending' && item.d.resolvedByName" class="muted draft-reason">
+                av {{ item.d.resolvedByName }}
+              </p>
+            </div>
+          </div>
+
           <!-- internal note -->
           <div v-else class="msg note" data-testid="note">
             <span class="av">📝</span>
@@ -242,6 +279,10 @@
             Intern anteckning
           </button>
         </div>
+        <p v-if="approving" class="muted approving" data-testid="approving">
+          Godkänner förslag från {{ approving.authorName || approving.author }} - redigera om du vill.
+          <button type="button" class="btn btn-ghost btn-sm" data-testid="approving-cancel" @click="cancelApprove">Avbryt</button>
+        </p>
         <textarea
           v-model="draft"
           class="form-control"
@@ -274,7 +315,7 @@
           </div>
           <div class="composer-actions">
             <button
-              v-if="mode === 'reply'"
+              v-if="mode === 'reply' && canSend && !approving"
               type="button"
               class="btn btn-ghost d-inline-flex align-items-center gap-1"
               data-testid="attach-button"
@@ -301,7 +342,17 @@
             >
               {{ replying ? 'Sparar…' : 'Spara anteckning' }}
             </button>
-            <div v-else class="split-btn">
+            <button
+              v-else-if="!approving"
+              type="button"
+              :class="canSend ? 'btn btn-secondary' : 'btn btn-primary'"
+              data-testid="propose"
+              :disabled="!draft.trim() || replying"
+              @click="propose"
+            >
+              {{ replying ? 'Skickar…' : 'Skicka för godkännande' }}
+            </button>
+            <div v-if="mode === 'reply' && canSend" class="split-btn">
               <button
                 type="button"
                 class="btn btn-primary"
@@ -383,7 +434,7 @@
 </template>
 
 <script setup>
-import { computed, h, ref, watch } from 'vue'
+import { computed, h, nextTick, ref, watch } from 'vue'
 import { Tooltip } from 'bootstrap'
 import DOMPurify from 'dompurify'
 import EmptyState from '@/components/EmptyState.vue'
@@ -411,7 +462,11 @@ const props = defineProps({
   // second or two and looks like nothing happened.
   attachmentBusy: { type: String, default: null },
   // `${messageId}:${index}` -> data URI of a sent image; null while it loads.
-  sentImages: { type: Object, default: () => ({}) }
+  sentImages: { type: Object, default: () => ({}) },
+  // Whether this admin may send mail (inbox.send); without it only proposing is offered.
+  canSend: { type: Boolean, default: true },
+  // draftId from a `?draft=` deep link: that card is marked and scrolled to.
+  highlightDraft: { type: String, default: null }
 })
 const emit = defineEmits([
   'move',
@@ -423,8 +478,13 @@ const emit = defineEmits([
   'set-state',
   'set-assignee',
   'add-note',
-  'transfer'
+  'transfer',
+  'propose',
+  'reject-draft'
 ])
+
+const DRAFT_LABEL = { pending: 'Väntar på godkännande', sent: 'Skickat', rejected: 'Avvisat' }
+const DRAFT_BADGE = { pending: 'state-pending', sent: 'state-done', rejected: 'draft-rejected' }
 
 // The current category always shows, even if it is not in the org list yet.
 const categoryOptions = computed(() => {
@@ -449,6 +509,7 @@ const menuOpen = ref(false)
 const composerOpen = ref(false) // mobile: composer hidden until opened
 const confirmOpen = ref(false) // "Skicka och stäng" confirmation dialog
 const sendError = ref('')
+const approving = ref(null) // the draft being sent by this admin, if any
 const files = ref([])
 const fileInput = ref(null)
 const reading = ref(false) // files are being encoded; replying is not yet true
@@ -479,8 +540,36 @@ watch(
     composerOpen.value = false
     confirmOpen.value = false
     sendError.value = ''
+    approving.value = null
     files.value = []
   }
+)
+
+const approve = (d) => {
+  approving.value = d
+  draft.value = d.text
+  files.value = []
+  openComposer('reply')
+}
+const cancelApprove = () => {
+  approving.value = null
+  draft.value = ''
+}
+const reject = (d) => {
+  const reason = window.prompt('Varför avvisas förslaget? (valfritt)', '')
+  if (reason === null) return
+  emit('reject-draft', { draftId: d.draftId, reason: reason.trim() })
+}
+
+// Scroll the deep-linked draft into view once the thread has rendered.
+watch(
+  () => [props.message?.messageId, props.highlightDraft],
+  async ([id, draftId]) => {
+    if (!id || !draftId) return
+    await nextTick()
+    document.getElementById(`draft-${draftId}`)?.scrollIntoView?.({ block: 'center' })
+  },
+  { immediate: true }
 )
 
 // Mobile "Svara"/"Anteckning" triggers — pick the tab and reveal the sheet.
@@ -491,12 +580,14 @@ const openComposer = (m) => {
 
 const thread = computed(() => props.message?.thread || [])
 const notes = computed(() => props.message?.notes || [])
+const drafts = computed(() => props.message?.drafts || [])
 
 // Messages + notes interleaved into one chronological timeline (oldest first).
 const timeline = computed(() => {
   const items = [
     ...thread.value.map((m) => ({ type: 'message', ts: m.receivedAt, key: 'm:' + m.messageId, m })),
-    ...notes.value.map((n) => ({ type: 'note', ts: n.createdAt, key: 'n:' + n.createdAt, n }))
+    ...notes.value.map((n) => ({ type: 'note', ts: n.createdAt, key: 'n:' + n.createdAt, n })),
+    ...drafts.value.map((d) => ({ type: 'draft', ts: d.createdAt, key: 'd:' + d.createdAt, d }))
   ]
   return items.sort((a, b) => ((a.ts || '') < (b.ts || '') ? -1 : 1))
 })
@@ -564,6 +655,7 @@ const doSend = async () => {
     if (ok) {
       draft.value = ''
       files.value = []
+      approving.value = null
       composerOpen.value = false
       return
     }
@@ -593,8 +685,29 @@ const doSend = async () => {
       // Another thread was opened while reading; this draft is gone with it.
       if (props.message?.messageId !== id) return
     }
-    emit('reply', { body: text, close: closeAfter.value, attachments, done })
+    emit('reply', {
+      body: text,
+      close: closeAfter.value,
+      attachments,
+      ...(approving.value && { draftId: approving.value.draftId }),
+      done
+    })
   }
+}
+
+const propose = () => {
+  const text = draft.value.trim()
+  if (!text) return
+  sendError.value = ''
+  const done = (ok, message) => {
+    if (ok) {
+      draft.value = ''
+      composerOpen.value = false
+      return
+    }
+    sendError.value = message || 'Det gick inte att skicka. Texten är kvar - försök igen.'
+  }
+  emit('propose', { body: text, done })
 }
 
 const choose = (close) => {
@@ -604,6 +717,31 @@ const choose = (close) => {
 </script>
 
 <style scoped>
+.badge.draft-rejected {
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+}
+.msg.draft .body::before {
+  content: 'FÖRESLAGET SVAR';
+}
+.msg.draft-focus .body {
+  outline: 2px solid var(--accent);
+}
+.draft-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+.draft-reason {
+  margin: 6px 0 0;
+  font-size: 0.86rem;
+}
+.approving {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: 0.86rem;
+}
 /* Files share the send bar; below ~12rem they push the buttons to a new line. */
 .composer-files {
   flex: 1 1 12rem;

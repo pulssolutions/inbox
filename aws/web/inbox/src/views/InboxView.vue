@@ -59,11 +59,15 @@
       :categories="categories.list"
       :attachment-busy="attachmentBusy"
       :sent-images="sentImages"
+      :can-send="session.can('inbox.send')"
+      :highlight-draft="route.query.draft || null"
       @back="closeMessage"
       @move="store.moveMessageAction"
       @delete="onDelete"
       @reply="onReply"
       @add-note="onAddNote"
+      @propose="onPropose"
+      @reject-draft="onRejectDraft"
       @set-state="onSetState"
       @set-assignee="onSetAssignee"
       @transfer="onTransfer"
@@ -79,6 +83,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useInboxStore } from '@/stores/inbox-store'
 import { useAssigneesStore } from '@/stores/assignees-store'
 import { useCategoriesStore } from '@/stores/categories-store'
+import { useAdminSessionStore } from '@/stores/admin-session-store'
 import InboxSidebar from '@/components/InboxSidebar.vue'
 import MessageList from '@/components/MessageList.vue'
 import MessageReader from '@/components/MessageReader.vue'
@@ -87,6 +92,7 @@ import { BOX_LABELS } from '@/helpers/format'
 const store = useInboxStore()
 const assignees = useAssigneesStore()
 const categories = useCategoriesStore()
+const session = useAdminSessionStore()
 const route = useRoute()
 const router = useRouter()
 
@@ -214,11 +220,11 @@ const onBulk = async (patch) => {
 
 // done() tells the composer whether to clear the draft or keep it and show why
 // it failed - a rejected send must not silently swallow what the agent wrote.
-const onReply = async ({ body, close, attachments, done }) => {
+const onReply = async ({ body, close, attachments, draftId, done }) => {
   if (!store.current) return
   const id = store.current.messageId
   try {
-    await store.replyAction(id, { body, attachments })
+    await store.replyAction(id, { body, attachments }, draftId)
   } catch (e) {
     done?.(false, e?.message)
     return
@@ -226,6 +232,26 @@ const onReply = async ({ body, close, attachments, done }) => {
   done?.(true)
   if (close) await store.setStateAction(id, 'done')
   // Refresh the thread so the sent reply shows inline.
+  await store.openMessageAction(id)
+}
+
+const onPropose = async ({ body, done }) => {
+  if (!store.current) return
+  const id = store.current.messageId
+  try {
+    await store.proposeAction(id, { body })
+  } catch (e) {
+    done?.(false, e?.message)
+    return
+  }
+  done?.(true)
+  await store.openMessageAction(id)
+}
+
+const onRejectDraft = async ({ draftId, reason }) => {
+  if (!store.current) return
+  const id = store.current.messageId
+  await store.rejectDraftAction(id, draftId, reason)
   await store.openMessageAction(id)
 }
 

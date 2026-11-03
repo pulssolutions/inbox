@@ -27,7 +27,25 @@ const docClient = new FakeDocClient()
 const db = new Database({ docClient, tableName: 'inbox-local' })
 const ses = new FakeSes()
 const mailStore = new FakeMailStore()
-const app = createApp({ deps: { db, ses, mailStore, sender: 'support@acme.example' } })
+// The webhook is on and posts to the console, so the settings form and its
+// Test button can be tried without a receiver.
+const webhook = {
+  async post({ url, body }) {
+    console.log('webhook ->', url, body)
+    return { ok: true, status: 201 }
+  }
+}
+const app = createApp({
+  deps: {
+    db,
+    ses,
+    mailStore,
+    sender: 'support@acme.example',
+    webhook,
+    webhookEnabled: true,
+    webBaseUrl: `http://localhost:${process.env.WEB_PORT || 5173}`
+  }
+})
 
 // ---- Seed data --------------------------------------------------------
 
@@ -79,6 +97,17 @@ const SEED = [
 await db.putAdmin({
   org: ORG,
   admin: { email: 'demo@acme.example', name: 'Demo Admin', role: 'superadmin' }
+})
+// An admin whose replies need a colleague's approval, for trying out drafts.
+await db.putAdmin({
+  org: ORG,
+  admin: {
+    email: 'junior@acme.example',
+    name: 'Junior Admin',
+    role: 'admin',
+    categories: ['kurser', 'styrelse'],
+    replyApproval: true
+  }
 })
 await db.putTenant({ domain: 'acme.example', org: ORG, name: 'Acme Ltd' })
 

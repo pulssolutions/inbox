@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { apiEvent, adminClaims } from './helper/event.js'
 import { buildHarness, parseBody } from './helper/setup.js'
+import { orgEntry } from '../../src/caps.js'
 
 const ORG = 'acme'
 
@@ -181,6 +182,27 @@ describe('integration: admin messages', () => {
 
     const denied = await h.handler(apiEvent({ method: 'GET', path: '/admin/audit', claims: adminClaims(ORG) }))
     expect(denied.statusCode).toBe(401)
+  })
+
+  it('a replyApproval admin may draft but not reply; the token mapping decides', async () => {
+    await seedMessage(h, ORG)
+    const claims = {
+      organizationId: ORG,
+      email: 'junior@acme.example',
+      orgs: JSON.stringify({ [ORG]: orgEntry({ role: 'admin', categories: ['kurser'], replyApproval: true }, 'Acme') })
+    }
+    const path = '/admin/messages/m1'
+    const reply = await h.handler(apiEvent({ method: 'POST', path: `${path}/reply`, body: { body: 'x' }, claims, routeTemplate: '/admin/{proxy+}' }))
+    expect(reply.statusCode).toBe(401)
+    const draft = await h.handler(apiEvent({ method: 'POST', path: `${path}/drafts`, body: { body: 'x' }, claims, routeTemplate: '/admin/{proxy+}' }))
+    expect(draft.statusCode).toBe(201)
+    const { draftId } = parseBody(draft)
+    const send = await h.handler(apiEvent({ method: 'POST', path: `${path}/drafts/${encodeURIComponent(draftId)}/send`, body: {}, claims, routeTemplate: '/admin/{proxy+}' }))
+    expect(send.statusCode).toBe(401)
+    const boss = { ...adminClaims(ORG), email: 'boss@acme.example' }
+    const sent = await h.handler(apiEvent({ method: 'POST', path: `${path}/drafts/${draftId}/send`, body: {}, claims: boss, routeTemplate: '/admin/{proxy+}' }))
+    expect(sent.statusCode).toBe(201)
+    expect(parseBody(sent).sentBy).toBe('boss@acme.example')
   })
 
   it('returns CORS headers on every response', async () => {

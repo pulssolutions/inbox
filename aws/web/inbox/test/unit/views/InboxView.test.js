@@ -5,6 +5,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import { addTestMessage, resetTestApi } from '../../setup'
 import InboxView from '@/views/InboxView.vue'
+import { useAdminSessionStore } from '@/stores/admin-session-store'
 
 const buildRouter = () =>
   createRouter({
@@ -37,6 +38,10 @@ describe('InboxView (integration with store + fetch shim)', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     resetTestApi()
+    useAdminSessionStore().$patch({
+      currentOrg: 'acme',
+      orgs: { acme: { capabilities: { inbox: { read: true, write: true, send: true, propose: true } } } }
+    })
   })
 
   it('tapping an attachment saves the decoded file', async () => {
@@ -265,6 +270,48 @@ describe('InboxView (integration with store + fetch shim)', () => {
     await w.find('[data-testid="confirm-send-close"]').trigger('click')
     await flushPromises()
     expect(w.find('.badge.state-done').exists()).toBe(true)
+  })
+
+  it('Send for approval files a draft that shows in the thread', async () => {
+    const { w } = await mountView('/m/m-new')
+    await flushPromises()
+    await w.find('[data-testid="reply-body"]').setValue('Förslag på svar')
+    await w.find('[data-testid="propose"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[data-testid="draft"]').text()).toContain('Förslag på svar')
+    expect(w.findAll('[data-testid="thread-msg"]')).toHaveLength(1)
+  })
+
+  it('?draft= opens the thread with that draft marked, and approving sends it', async () => {
+    const { w } = await mountView('/m/m-new')
+    await flushPromises()
+    await w.find('[data-testid="reply-body"]').setValue('Förslag')
+    await w.find('[data-testid="propose"]').trigger('click')
+    await flushPromises()
+    const id = w.find('[data-testid="draft"]').attributes('data-draft-id')
+    const { w: w2 } = await mountView(`/m/m-new?draft=${encodeURIComponent(id)}`)
+    await flushPromises()
+    expect(w2.find('[data-testid="draft"]').classes()).toContain('draft-focus')
+    await w2.find('[data-testid="draft-approve"]').trigger('click')
+    await w2.find('[data-testid="send-reply"]').trigger('click')
+    await w2.find('[data-testid="confirm-send-close"]').trigger('click')
+    await flushPromises()
+    expect(w2.findAll('[data-testid="thread-msg"]')).toHaveLength(2)
+    expect(w2.find('[data-testid="draft-status"]').text()).toBe('Skickat')
+  })
+
+  it('rejecting a draft keeps the reason on the card', async () => {
+    const { w } = await mountView('/m/m-new')
+    await flushPromises()
+    await w.find('[data-testid="reply-body"]').setValue('Förslag')
+    await w.find('[data-testid="propose"]').trigger('click')
+    await flushPromises()
+    vi.spyOn(window, 'prompt').mockReturnValue('Fel ton')
+    await w.find('[data-testid="draft-reject"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[data-testid="draft-status"]').text()).toBe('Avvisat')
+    expect(w.find('[data-testid="draft"]').text()).toContain('Fel ton')
+    window.prompt.mockRestore()
   })
 
   it('adding an internal note appends it to the thread', async () => {

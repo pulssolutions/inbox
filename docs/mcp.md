@@ -30,8 +30,8 @@ one JSON response per request.
 | --- | --- |
 | `list_messages` | One page of threads (`box`, `category`, `state`, `assignment`, `cursor`) |
 | `search_messages` | Search subjects, senders and categories |
-| `get_message` | A thread, text only, with attachment metadata and notes; marks it read and seen |
-| `reply` | Email the sender from the category address; auto-assigns an unassigned thread |
+| `get_message` | A thread, text only, with attachment metadata, notes and reply drafts (`status`, `reason`); marks it read and seen |
+| `reply` | Email the sender from the category address; auto-assigns an unassigned thread. For an owner whose replies need approval it files a draft instead and returns `{ status: 'pending_approval', draftId }` |
 | `add_note` | Internal note |
 | `set_state` | `open`, `pending` or `done` |
 | `archive_message` | Archive, or move back to the inbox |
@@ -40,6 +40,14 @@ one JSON response per request.
 `messageId` is the thread root or any message in it. An error comes back as a
 tool error, `CODE: message`; a thread outside the owner's categories is
 `MESSAGE_NOT_FOUND`, as in the API.
+
+## An agent that proposes rather than sends
+
+Give the agent its own admin row and tick **Replies need approval from a
+colleague** (`replyApproval`). Its token then has `inbox.propose` but not
+`inbox.send`, so `reply` stores a draft, mails the category's admins a link to
+it, and a colleague sends or rejects it in the web app. Turn the row's
+notification mail off: nobody reads mail sent to an agent.
 
 ## Attribution
 

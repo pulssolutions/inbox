@@ -158,6 +158,13 @@ describe('webhook settings', () => {
     })
   })
 
+  it('validates the proposed-reply template the same way', async () => {
+    await expect(
+      update({ deps, org: ORG, claims, body: { webhook: { proposedTemplate: '{{author}} {{nope}}' } } })
+    ).rejects.toMatchObject({ code: 'WEBHOOK_INVALID', message: 'Unknown placeholder nope' })
+    expect(WEBHOOK_DEFAULTS.onProposedReply).toBe(false)
+  })
+
   it('refuses an envelope with nowhere to put the content', async () => {
     await expect(save({ envelope: '{"content":"fixed"}' })).rejects.toMatchObject({
       code: 'WEBHOOK_INVALID'

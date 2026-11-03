@@ -27,6 +27,10 @@ export const buildRoutes = () => ({
   'PATCH /admin/messages/{messageId}': wrapAdmin('inbox.write', messages.updateStatus),
   'POST /admin/messages/{messageId}/reply': wrapAdmin('inbox.send', messages.reply),
   'POST /admin/messages/{messageId}/notes': wrapAdmin('inbox.write', messages.addNote),
+  'POST /admin/messages/{messageId}/drafts': wrapAdmin('inbox.propose', messages.createDraft),
+  'POST /admin/messages/{messageId}/drafts/{draftId}/send': wrapAdmin('inbox.send', messages.sendDraft),
+  'POST /admin/messages/{messageId}/drafts/{draftId}/reject': wrapAdmin('inbox.send', messages.rejectDraft),
+  'DELETE /admin/messages/{messageId}/drafts/{draftId}': wrapAdmin('inbox.write', messages.deleteDraft),
   'POST /admin/messages/{messageId}/transfer': wrapAdmin('inbox.write', messages.transfer),
   'DELETE /admin/messages/{messageId}': wrapAdmin('inbox.write', messages.remove),
 
@@ -71,7 +75,14 @@ const matchAdminRoute = (event, routeKeys) => {
     if (!pat.includes('{')) continue
     const re = new RegExp('^' + pat.replace(/\{(\w+)\}/g, '(?<$1>[^/]+)') + '$')
     const match = rawPath.match(re)
-    if (match) return { routeKey: key, pathParameters: match.groups || {} }
+    if (match) {
+      // A draft id is an ISO timestamp and arrives percent-encoded from the
+      // client; a parameter is the decoded value.
+      const params = Object.fromEntries(
+        Object.entries(match.groups || {}).map(([k, v]) => [k, decodeURIComponent(v)])
+      )
+      return { routeKey: key, pathParameters: params }
+    }
   }
   return null
 }
