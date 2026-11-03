@@ -300,6 +300,21 @@ describe('InboxView (integration with store + fetch shim)', () => {
     expect(w2.find('[data-testid="draft-status"]').text()).toBe('Skickat')
   })
 
+  it('a new ?draft= link on the open thread fetches the draft', async () => {
+    const { w, router } = await mountView('/m/m-new')
+    await flushPromises()
+    await w.find('[data-testid="reply-body"]').setValue('Förslag')
+    await w.find('[data-testid="propose"]').trigger('click')
+    await flushPromises()
+    const id = w.find('[data-testid="draft"]').attributes('data-draft-id')
+    // Another admin's draft lands while this thread is open.
+    await fetch('http://localhost/admin/messages/m-new/drafts', { method: 'POST', body: JSON.stringify({ body: 'Senare förslag' }) })
+    await router.push(`/m/m-new?draft=${encodeURIComponent(id)}`)
+    await flushPromises()
+    expect(w.findAll('[data-testid="draft"]')).toHaveLength(2)
+    expect(w.find('[data-testid="draft"]').classes()).toContain('draft-focus')
+  })
+
   it('rejecting a draft keeps the reason on the card', async () => {
     const { w } = await mountView('/m/m-new')
     await flushPromises()

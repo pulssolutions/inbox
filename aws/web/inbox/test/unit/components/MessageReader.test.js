@@ -493,6 +493,15 @@ describe('MessageReader', () => {
       prompt.mockRestore()
     })
 
+    it('a proposal is text only: files block Send for approval', async () => {
+      const w = mount(MessageReader, { props: { message: message(), canSend: false } })
+      await w.find('[data-testid="reply-body"]').setValue('Förslag')
+      const file = new File(['x'], 'a.txt', { type: 'text/plain' })
+      w.vm.addFiles([file])
+      await w.vm.$nextTick()
+      expect(w.find('[data-testid="propose"]').attributes('disabled')).toBeDefined()
+    })
+
     it('the deep-linked draft is marked', () => {
       const w = mount(MessageReader, {
         props: { message: message({ drafts: [draft()] }), highlightDraft: '2026-06-03T10:00:00Z' }

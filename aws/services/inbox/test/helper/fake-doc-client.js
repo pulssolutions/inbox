@@ -1,3 +1,9 @@
+const conditionFailed = () => {
+  const err = new Error('The conditional request failed')
+  err.name = 'ConditionalCheckFailedException'
+  return err
+}
+
 export class FakeDocClient {
   constructor() {
     this.items = new Map()
@@ -8,6 +14,15 @@ export class FakeDocClient {
     return `${item[pkAttr]}|${item[skAttr]}`
   }
 
+  // `#name = :value` equality conditions, as transitionDraft/deleteNote write them.
+  _assertEquals(input, existing) {
+    const names = input.ExpressionAttributeNames || {}
+    const values = input.ExpressionAttributeValues || {}
+    for (const [, n, v] of (input.ConditionExpression || '').matchAll(/(#\w+)\s*=\s*(:\w+)/g)) {
+      if (!existing || existing[names[n]] !== values[v]) throw conditionFailed()
+    }
+  }
+
   async send(command) {
     const name = command.constructor.name
     const input = command.input
@@ -15,6 +30,9 @@ export class FakeDocClient {
 
     if (name === 'PutCommand') {
       const k = this._key(input.Item)
+      if (/attribute_not_exists/.test(input.ConditionExpression || '') && this.items.has(k)) {
+        throw conditionFailed()
+      }
       this.items.set(k, { ...input.Item })
       return {}
     }
@@ -27,6 +45,7 @@ export class FakeDocClient {
 
     if (name === 'DeleteCommand') {
       const k = `${input.Key.pk}|${input.Key.sk}`
+      this._assertEquals(input, this.items.get(k))
       this.items.delete(k)
       return {}
     }
@@ -49,10 +68,9 @@ export class FakeDocClient {
     const existing = this.items.get(k)
 
     if (/attribute_exists/.test(input.ConditionExpression || '') && !existing) {
-      const err = new Error('The conditional request failed')
-      err.name = 'ConditionalCheckFailedException'
-      throw err
+      throw conditionFailed()
     }
+    this._assertEquals(input, existing)
 
     const names = input.ExpressionAttributeNames || {}
     const values = input.ExpressionAttributeValues || {}

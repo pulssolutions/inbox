@@ -223,9 +223,13 @@ export const detail = async ({ deps, org, pathParameters, claims }) => {
 
   const seen = await deps.db.listSeen({ org, threadId: root })
 
-  const rows = await deps.db.listNotesByMessage({ org, messageId })
-  const notes = rows.filter((n) => n.kind !== 'draft')
-  const drafts = rows.filter((n) => n.kind === 'draft')
+  const notes = (await deps.db.listNotesByMessage({ org, messageId })).filter(
+    (n) => n.kind !== 'draft'
+  )
+  // Drafts hang off the thread root, whichever member they were proposed on.
+  const drafts = (await deps.db.listNotesByMessage({ org, messageId: root })).filter(
+    (n) => n.kind === 'draft'
+  )
 
   // Label replies and notes with the writing admin's display name (resolved
   // here so historical rows that only stored an email also get a name).
@@ -781,8 +785,10 @@ const sendReply = async (deps, { org, claims, original, body, audit = {} }) => {
   return { statusCode: 201, data: { ...outbound, assignee } }
 }
 
-const requireDraft = async (deps, org, { messageId, draftId }) => {
-  const draft = await deps.db.getNote({ org, messageId, createdAt: draftId })
+const rootOf = (message) => message.threadId || message.messageId
+
+const requireDraft = async (deps, org, message, { draftId }) => {
+  const draft = await deps.db.getNote({ org, messageId: rootOf(message), createdAt: draftId })
   if (!draft || draft.kind !== 'draft') {
     throw new NotFoundError('DRAFT_NOT_FOUND', `Draft ${draftId} not found`)
   }
@@ -795,8 +801,9 @@ const requirePending = (draft) => {
   }
 }
 
+// Atomic: a second approver racing for the same draft gets the 409 here.
 const resolveDraft = (deps, org, draft, claims, set) =>
-  deps.db.updateNote({
+  deps.db.transitionDraft({
     org,
     messageId: draft.messageId,
     createdAt: draft.createdAt,
@@ -811,14 +818,14 @@ export const createDraft = async ({ deps, org, pathParameters, body, claims }) =
   const draft = await deps.db.putNote({
     org,
     note: {
-      messageId,
+      messageId: rootOf(message),
       kind: 'draft',
       status: 'pending',
       subject: body.subject || `Re: ${message.subject || ''}`,
       text: body.body,
       author,
       // Carried on the row so the webhook can link and label it without a lookup.
-      threadId: message.threadId || message.messageId,
+      threadId: rootOf(message),
       category: message.category
     }
   })
@@ -827,7 +834,7 @@ export const createDraft = async ({ deps, org, pathParameters, body, claims }) =
     claims,
     action: 'draft.create',
     targetType: 'message',
-    targetId: messageId,
+    targetId: rootOf(message),
     targetLabel: message.subject || '',
     meta: { draftId: draft.createdAt }
   })
@@ -848,27 +855,46 @@ export const createDraft = async ({ deps, org, pathParameters, body, claims }) =
 
 export const sendDraft = async ({ deps, org, pathParameters, body, claims }) => {
   const original = await requireMessage(deps, org, pathParameters?.messageId, claims)
-  const draft = await requireDraft(deps, org, pathParameters)
+  const draft = await requireDraft(deps, org, original, pathParameters)
   requirePending(draft)
-  const override = body?.body !== undefined ? body : {}
   if (body?.body !== undefined) requireBody(body)
-  const sent = await sendReply(deps, {
+  // Claim the draft before mailing, so two approvers cannot both send; a
+  // failed send hands it back.
+  await resolveDraft(deps, org, draft, claims, { status: 'sent' })
+  let sent
+  try {
+    sent = await sendReply(deps, {
+      org,
+      claims,
+      original,
+      body: {
+        body: body?.body ?? draft.text,
+        subject: body?.subject || draft.subject,
+        attachments: body?.attachments
+      },
+      audit: { draftId: draft.createdAt, proposedBy: draft.author }
+    })
+  } catch (e) {
+    await deps.db.updateNote({
+      org,
+      messageId: draft.messageId,
+      createdAt: draft.createdAt,
+      set: { status: 'pending', resolvedBy: '', resolvedAt: '' }
+    })
+    throw e
+  }
+  await deps.db.updateNote({
     org,
-    claims,
-    original,
-    body: { body: override.body ?? draft.text, subject: body?.subject || draft.subject },
-    audit: { draftId: draft.createdAt, proposedBy: draft.author }
-  })
-  await resolveDraft(deps, org, draft, claims, {
-    status: 'sent',
-    sentMessageId: sent.data.messageId
+    messageId: draft.messageId,
+    createdAt: draft.createdAt,
+    set: { sentMessageId: sent.data.messageId }
   })
   return sent
 }
 
 export const rejectDraft = async ({ deps, org, pathParameters, body, claims }) => {
   const message = await requireMessage(deps, org, pathParameters?.messageId, claims)
-  const draft = await requireDraft(deps, org, pathParameters)
+  const draft = await requireDraft(deps, org, message, pathParameters)
   requirePending(draft)
   const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''
   const updated = await resolveDraft(deps, org, draft, claims, { status: 'rejected', reason })
@@ -887,12 +913,17 @@ export const rejectDraft = async ({ deps, org, pathParameters, body, claims }) =
 // Author only: anyone else gets the same 404 as a draft that does not exist.
 export const deleteDraft = async ({ deps, org, pathParameters, claims }) => {
   const message = await requireMessage(deps, org, pathParameters?.messageId, claims)
-  const draft = await requireDraft(deps, org, pathParameters)
+  const draft = await requireDraft(deps, org, message, pathParameters)
   if (draft.author !== claims?.email) {
     throw new NotFoundError('DRAFT_NOT_FOUND', `Draft ${draft.createdAt} not found`)
   }
   requirePending(draft)
-  await deps.db.deleteNote({ org, messageId: draft.messageId, createdAt: draft.createdAt })
+  await deps.db.deleteNote({
+    org,
+    messageId: draft.messageId,
+    createdAt: draft.createdAt,
+    ifStatus: 'pending'
+  })
   await recordAudit(deps, {
     org,
     claims,

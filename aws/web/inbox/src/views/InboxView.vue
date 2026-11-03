@@ -143,6 +143,14 @@ watch(
   }
 )
 
+// A new `?draft=` link on the thread already open: fetch the draft it names.
+watch(
+  () => route.query.draft,
+  (draftId) => {
+    if (draftId && route.params.messageId) store.openMessageAction(route.params.messageId)
+  }
+)
+
 // Mobile drill: folders ← list (home) → reader. The reader level is driven by
 // the URL (a message is open); folders vs list is local UI state.
 const showFolders = ref(false)

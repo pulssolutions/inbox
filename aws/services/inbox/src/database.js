@@ -6,7 +6,7 @@ import {
   DeleteCommand,
   UpdateCommand
 } from '@aws-sdk/lib-dynamodb'
-import { NotFoundError, ValidationError } from './errors.js'
+import { ConflictError, NotFoundError, ValidationError } from './errors.js'
 import {
   tenantKey,
   messageKey,
@@ -123,6 +123,16 @@ export class Database {
       values[`:v${i}`] = value
       assignments.push(`#a${i} = :v${i}`)
     })
+    // A string condition is passed through; an object is attribute equality.
+    if (condition && typeof condition === 'object') {
+      condition = Object.entries(condition)
+        .map(([attr, value], i) => {
+          names[`#c${i}`] = attr
+          values[`:c${i}`] = value
+          return `#c${i} = :c${i}`
+        })
+        .join(' AND ')
+    }
 
     const res = await this.docClient.send(
       new UpdateCommand({
@@ -379,14 +389,40 @@ export class Database {
 
   // ---- internal notes ---------------------------------------------------
 
+  // createdAt is the key, so two notes in the same millisecond would collide;
+  // the second one moves a millisecond forward instead of replacing the first.
   async putNote({ org, note }) {
-    const createdAt = note.createdAt || nowIso()
-    await this._put({
-      ...noteKey(org, note.messageId, createdAt),
-      ...note,
-      createdAt
-    })
-    return { ...note, createdAt }
+    let createdAt = note.createdAt || nowIso()
+    for (;;) {
+      try {
+        await this.docClient.send(
+          new PutCommand({
+            TableName: this.tableName,
+            Item: { ...noteKey(org, note.messageId, createdAt), ...note, createdAt },
+            ConditionExpression: 'attribute_not_exists(pk)'
+          })
+        )
+        return { ...note, createdAt }
+      } catch (e) {
+        if (e.name !== 'ConditionalCheckFailedException') throw e
+        createdAt = new Date(Date.parse(createdAt) + 1).toISOString()
+      }
+    }
+  }
+
+  // Moves a draft out of `pending` only if it still is - the guard against two
+  // approvers acting on the same draft. Throws 409 when someone else got there.
+  async transitionDraft({ org, messageId, createdAt, set }) {
+    try {
+      return await this._updateAttributes({
+        key: noteKey(org, messageId, createdAt),
+        set,
+        condition: { status: 'pending' }
+      })
+    } catch (e) {
+      if (e.name !== 'ConditionalCheckFailedException') throw e
+      throw new ConflictError('DRAFT_NOT_PENDING', 'Draft is no longer pending')
+    }
   }
 
   async getNote({ org, messageId, createdAt }) {
@@ -397,8 +433,23 @@ export class Database {
     return this._updateAttributes({ key: noteKey(org, messageId, createdAt), set })
   }
 
-  async deleteNote({ org, messageId, createdAt }) {
-    await this._delete(noteKey(org, messageId, createdAt))
+  async deleteNote({ org, messageId, createdAt, ifStatus }) {
+    try {
+      await this.docClient.send(
+        new DeleteCommand({
+          TableName: this.tableName,
+          Key: noteKey(org, messageId, createdAt),
+          ...(ifStatus && {
+            ConditionExpression: '#st = :st',
+            ExpressionAttributeNames: { '#st': 'status' },
+            ExpressionAttributeValues: { ':st': ifStatus }
+          })
+        })
+      )
+    } catch (e) {
+      if (e.name !== 'ConditionalCheckFailedException') throw e
+      throw new ConflictError('DRAFT_NOT_PENDING', 'Draft is no longer pending')
+    }
   }
 
   async listNotesByMessage({ org, messageId }) {

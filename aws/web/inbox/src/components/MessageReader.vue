@@ -315,7 +315,7 @@
           </div>
           <div class="composer-actions">
             <button
-              v-if="mode === 'reply' && canSend && !approving"
+              v-if="mode === 'reply' && canSend"
               type="button"
               class="btn btn-ghost d-inline-flex align-items-center gap-1"
               data-testid="attach-button"
@@ -347,7 +347,8 @@
               type="button"
               :class="canSend ? 'btn btn-secondary' : 'btn btn-primary'"
               data-testid="propose"
-              :disabled="!draft.trim() || replying"
+              :disabled="!draft.trim() || replying || files.length > 0"
+              :title="files.length ? 'Ett förslag kan inte ha bilagor' : null"
               @click="propose"
             >
               {{ replying ? 'Skickar…' : 'Skicka för godkännande' }}

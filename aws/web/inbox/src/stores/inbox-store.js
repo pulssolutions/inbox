@@ -271,7 +271,12 @@ export const useInboxStore = defineStore('inbox-store', {
     },
 
     async proposeAction(id, payload) {
-      return createDraftAPI(id, payload)
+      this.loading.reply = true
+      try {
+        return await createDraftAPI(id, payload)
+      } finally {
+        this.loading.reply = false
+      }
     },
 
     async rejectDraftAction(id, draftId, reason) {

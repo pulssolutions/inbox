@@ -148,6 +148,61 @@ describe('reply drafts', () => {
     expect(deps.ses.replies).toHaveLength(1)
   })
 
+  it('two approvers racing for one draft: one sends, the other gets 409', async () => {
+    const { data } = await propose()
+    const p = { deps, org: ORG, pathParameters: { messageId: 'm1', draftId: data.draftId }, body: {}, claims: approver }
+    const results = await Promise.allSettled([sendDraft(p), sendDraft(p)])
+    expect(results.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected'])
+    expect(results.find((r) => r.status === 'rejected').reason.code).toBe('DRAFT_NOT_PENDING')
+    expect(deps.ses.replies).toHaveLength(1)
+  })
+
+  it('a failed send hands the draft back as pending', async () => {
+    const { data } = await propose()
+    deps.ses.sendReply = async () => {
+      throw new Error('SES down')
+    }
+    await expect(
+      sendDraft({ deps, org: ORG, pathParameters: { messageId: 'm1', draftId: data.draftId }, body: {}, claims: approver })
+    ).rejects.toThrow('SES down')
+    const d = await detail({ deps, org: ORG, pathParameters: { messageId: 'm1' }, claims: approver })
+    expect(d.drafts[0].status).toBe('pending')
+  })
+
+  it('two drafts in the same millisecond both survive', async () => {
+    const note = { messageId: 'm1', kind: 'draft', status: 'pending', text: 'x', createdAt: '2026-06-01T10:00:00.000Z' }
+    const a = await deps.db.putNote({ org: ORG, note })
+    const b = await deps.db.putNote({ org: ORG, note })
+    expect(a.createdAt).not.toBe(b.createdAt)
+    const d = await detail({ deps, org: ORG, pathParameters: { messageId: 'm1' }, claims: approver })
+    expect(d.drafts).toHaveLength(2)
+  })
+
+  it('a draft proposed on a reply member hangs off the thread root', async () => {
+    await deps.db.putMessage({
+      org: ORG,
+      message: { messageId: 'r1', threadId: 'm1', inReplyTo: 'm1', category: 'kurser', from: 'x', subject: 'Re', receivedAt: '2026-06-02T10:00:00Z', direction: 'outbound', box: 'inbox' }
+    })
+    const { data } = await createDraft({ deps, org: ORG, pathParameters: { messageId: 'r1' }, body: { body: 'via reply' }, claims: author })
+    expect(data.messageId).toBe('m1')
+    const d = await detail({ deps, org: ORG, pathParameters: { messageId: 'm1' }, claims: approver })
+    expect(d.drafts.map((x) => x.text)).toEqual(['via reply'])
+    const res = await sendDraft({ deps, org: ORG, pathParameters: { messageId: 'r1', draftId: data.draftId }, body: {}, claims: approver })
+    expect(res.statusCode).toBe(201)
+  })
+
+  it('send forwards the approver attachments', async () => {
+    const { data } = await propose()
+    await sendDraft({
+      deps,
+      org: ORG,
+      pathParameters: { messageId: 'm1', draftId: data.draftId },
+      body: { attachments: [{ filename: 'a.txt', contentType: 'text/plain', contentBase64: Buffer.from('hej').toString('base64') }] },
+      claims: approver
+    })
+    expect(deps.ses.replies[0].attachments).toHaveLength(1)
+  })
+
   it('reject stores the reason and who rejected', async () => {
     const { data } = await propose()
     const res = await rejectDraft({
