@@ -508,6 +508,26 @@ describe('MessageReader', () => {
       })
       expect(w.find('[data-testid="draft"]').classes()).toContain('draft-focus')
     })
+
+    it('the deep-linked draft is scrolled to again when an image above it loads', async () => {
+      const scrolled = vi.fn()
+      Element.prototype.scrollIntoView = scrolled
+      const w = mount(MessageReader, {
+        attachTo: document.body,
+        props: {
+          message: message({
+            thread: [{ ...message().thread[0], html: '<p>x</p><img src="/big.png">' }],
+            drafts: [draft()]
+          }),
+          highlightDraft: '2026-06-03T10:00:00Z'
+        }
+      })
+      await w.vm.$nextTick()
+      expect(scrolled).toHaveBeenCalledTimes(1)
+      w.find('.thread img').element.dispatchEvent(new Event('load'))
+      expect(scrolled).toHaveBeenCalledTimes(2)
+      w.unmount()
+    })
   })
 
   it('the note tab emits add-note instead of reply', async () => {

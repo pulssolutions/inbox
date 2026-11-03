@@ -562,13 +562,20 @@ const reject = (d) => {
   emit('reject-draft', { draftId: d.draftId, reason: reason.trim() })
 }
 
-// Scroll the deep-linked draft into view once the thread has rendered.
+// Scroll the deep-linked draft into view once the thread has rendered. Mail
+// bodies carry images that load after that, each one pushing the card further
+// down, so scroll again as they arrive.
 watch(
   () => [props.message?.messageId, props.highlightDraft],
   async ([id, draftId]) => {
     if (!id || !draftId) return
     await nextTick()
-    document.getElementById(`draft-${draftId}`)?.scrollIntoView?.({ block: 'center' })
+    const reveal = () =>
+      document.getElementById(`draft-${draftId}`)?.scrollIntoView?.({ block: 'center' })
+    reveal()
+    for (const img of document.querySelectorAll('.thread img')) {
+      if (!img.complete) img.addEventListener('load', reveal, { once: true })
+    }
   },
   { immediate: true }
 )
