@@ -8,6 +8,10 @@
 - Agents authenticate with Cognito — email one-time code, or Google if the
   profile configures it. Both resolve to one account per email address.
 - CloudTrail is on for the account; every log group has a retention setting.
+- AI agents authenticate to `POST /mcp` with an API token issued by a
+  superadmin. A token equals its owner admin — same capabilities, same category
+  scope, re-read on every request — and is revoked by deleting it. Only its
+  SHA-256 is stored. See [mcp.md](mcp.md).
 
 ## Authorization
 

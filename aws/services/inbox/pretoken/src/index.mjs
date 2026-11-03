@@ -12,13 +12,8 @@
 
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb'
-
-const INBOX_CAPS = { inbox: { read: true, write: true, send: true } }
-const SUPER_CAPS = {
-  inbox: { read: true, write: true, send: true },
-  admins: { read: true, write: true, delete: true },
-  audit: { read: true }
-}
+// Symlink to the service's src/caps.js; zip follows it when packaging.
+import { orgEntry } from './caps.mjs'
 
 let _docClient = null
 export const __setDocClient = (c) => {
@@ -86,12 +81,7 @@ export const handler = async (event = {}) => {
   const orgs = {}
   for (const r of rows) {
     if (!r.org) continue
-    orgs[r.org] = {
-      capabilities: r.role === 'superadmin' ? SUPER_CAPS : INBOX_CAPS,
-      categories: r.role === 'superadmin' ? '*' : r.categories || [],
-      name: names[r.org] || r.org,
-      active: true
-    }
+    orgs[r.org] = orgEntry(r, names[r.org] || r.org)
   }
   const orgKeys = Object.keys(orgs)
   if (orgKeys.length === 0) return event

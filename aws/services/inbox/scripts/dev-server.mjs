@@ -14,6 +14,7 @@
 
 import express from 'express'
 import { createApp } from '../src/app.js'
+import { handleMcp } from '../src/mcp.js'
 import { Database } from '../src/database.js'
 import { FakeDocClient } from '../test/helper/fake-doc-client.js'
 import { FakeSes } from '../test/helper/fake-ses.js'
@@ -73,6 +74,14 @@ const SEED = [
   }))
 ]
 
+// The admin the console snippet in docs/local-development.md signs in as, so
+// an API token can be issued to it and used against /mcp.
+await db.putAdmin({
+  org: ORG,
+  admin: { email: 'demo@acme.example', name: 'Demo Admin', role: 'superadmin' }
+})
+await db.putTenant({ domain: 'acme.example', org: ORG, name: 'Acme Ltd' })
+
 for (const m of SEED) {
   await db.putMessage({ org: ORG, message: m })
   mailStore.seed({
@@ -126,7 +135,7 @@ server.all(/.*/, async (req, res) => {
       http: { method: req.method },
       ...(claims ? { authorizer: { jwt: { claims } } } : {})
     },
-    headers: { host: req.headers.host },
+    headers: req.path === '/mcp' ? req.headers : { host: req.headers.host },
     queryStringParameters: req.query,
     pathParameters: {},
     body: req.body && req.body.length ? req.body : undefined
@@ -135,7 +144,7 @@ server.all(/.*/, async (req, res) => {
   if (req.path.startsWith('/admin/')) {
     event.routeKey = `${req.method} /admin/{proxy+}`
   }
-  const result = await app.handle(event)
+  const result = event.routeKey === 'POST /mcp' ? await handleMcp(app, event) : await app.handle(event)
   // Echo the caller's origin so a browser accepts the response; the handler's
   // own '*' is fine for API Gateway but not for credentialed browser fetches.
   if (req.headers.origin) res.set('access-control-allow-origin', req.headers.origin)

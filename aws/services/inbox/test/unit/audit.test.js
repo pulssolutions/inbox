@@ -34,3 +34,14 @@ describe('recordAudit', () => {
     ).resolves.toBeUndefined()
   })
 })
+
+describe('actorOf', () => {
+  it('passes via through when present and omits it otherwise', async () => {
+    const puts = []
+    const deps = { db: { putAudit: async (e) => puts.push(e) } }
+    await recordAudit(deps, { org: 'o', claims: { email: 'a@x.se', name: 'bot', via: 'mcp' }, action: 'reply' })
+    await recordAudit(deps, { org: 'o', claims: { email: 'a@x.se', name: 'A' }, action: 'reply' })
+    expect(puts[0].entry.actor).toEqual({ email: 'a@x.se', name: 'bot', via: 'mcp' })
+    expect(puts[1].entry.actor).toEqual({ email: 'a@x.se', name: 'A' })
+  })
+})

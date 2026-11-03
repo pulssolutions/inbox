@@ -101,7 +101,8 @@ const state = {
   audit: [],
   notifyDefaults: null,
   webhook: null,
-  webhookGroupMissing: false
+  webhookGroupMissing: false,
+  tokens: []
 }
 let replyCounter = 0
 let noteCounter = 0
@@ -134,6 +135,7 @@ export const resetTestApi = () => {
   state.webhook = null
   state.webhookGroupMissing = false
   state.admins = seedAdmins()
+  state.tokens = []
   state.audit = [
     { id: 'a3', ts: '2026-06-03T13:00:00Z', actor: { email: 'boss@acme.example', name: 'Boss' }, action: 'state', targetType: 'message', targetLabel: 'Agility?', meta: { state: { from: 'open', to: 'done' } } },
     { id: 'a2', ts: '2026-06-03T12:00:00Z', actor: { email: 'boss@acme.example', name: 'Boss' }, action: 'delete', targetType: 'message', targetLabel: 'Skräppost' },
@@ -384,6 +386,20 @@ const handle = async (input, init = {}) => {
     return url
       ? jsonResponse(200, { delivered: true, status: 201, error: null })
       : jsonResponse(400, { code: 'WEBHOOK_NO_URL', message: 'Configure a URL first' })
+  }
+
+  if (path === '/admin/tokens' && method === 'GET') {
+    return jsonResponse(200, state.tokens)
+  }
+  if (path === '/admin/tokens' && method === 'POST') {
+    const token = { tokenId: `t${state.tokens.length + 1}`, name: body.name, owner: body.owner, createdAt: '2026-06-03T09:00:00Z', createdBy: 'boss@acme.example', lastUsedAt: null }
+    state.tokens.push(token)
+    return jsonResponse(201, { ...token, secret: 'inbx_test-secret' })
+  }
+  m = path.match(/^\/admin\/tokens\/([^/]+)$/)
+  if (m && method === 'DELETE') {
+    state.tokens = state.tokens.filter((t) => t.tokenId !== m[1])
+    return jsonResponse(204, null)
   }
 
   if (path === '/admin/admins' && method === 'GET') {

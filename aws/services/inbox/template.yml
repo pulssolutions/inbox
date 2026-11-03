@@ -705,6 +705,15 @@ Resources:
       AuthorizerId: !Ref AdminAuthorizer
       Target: !Sub "integrations/${InboxLambdaIntegration}"
 
+  # MCP clients authenticate with an API token the Lambda verifies itself.
+  RouteMcpPost:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref InboxApi
+      RouteKey: "POST /mcp"
+      AuthorizationType: NONE
+      Target: !Sub "integrations/${InboxLambdaIntegration}"
+
   # ---- Custom domain (regional cert + DNS) ------------------------------
 
   ApiCertificate:

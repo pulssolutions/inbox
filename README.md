@@ -81,6 +81,8 @@ New deployment? Start at `docs/bootstrap.md`.
 No AWS needed - the service runs against in-memory fakes and the web app
 against it. See `docs/local-development.md`.
 
+AI agents connect over MCP with an API token — see `docs/mcp.md`.
+
 ## Tests
 
 ```bash

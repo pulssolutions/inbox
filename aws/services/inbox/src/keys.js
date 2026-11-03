@@ -17,6 +17,12 @@ export const adminKey = (org, email) => ({
   sk: String(email).toLowerCase()
 })
 
+// API tokens; the hash is looked up through gsi1 (`token#<hash>`).
+export const tokenKey = (org, tokenId) => ({
+  pk: `${org}:token`,
+  sk: tokenId
+})
+
 // Org-wide settings, one row per group of them.
 export const settingsKey = (org, group) => ({
   pk: `${org}:settings`,
