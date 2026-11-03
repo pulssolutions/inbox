@@ -30,7 +30,8 @@ one JSON response per request.
 | --- | --- |
 | `list_messages` | One page of threads (`box`, `category`, `state`, `assignment`, `cursor`) |
 | `search_messages` | Search subjects, senders and categories |
-| `get_message` | A thread, text only, with attachment metadata, notes and reply drafts (`status`, `reason`); marks it read and seen |
+| `get_message` | A thread, text only, with attachment metadata (`index`, `filename`, `contentType`, `size`), notes and reply drafts (`status`, `reason`); marks it read and seen |
+| `get_attachment` | One attachment by `messageId` and `index`: images as an image block, text decoded, other files as an embedded resource (base64). Over 4 MB it returns a short-lived download URL instead |
 | `reply` | Email the sender from the category address; auto-assigns an unassigned thread. For an owner whose replies need approval it files a draft instead and returns `{ status: 'pending_approval', draftId }` |
 | `add_note` | Internal note |
 | `set_state` | `open`, `pending` or `done` |

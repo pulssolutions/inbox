@@ -126,6 +126,7 @@ describe('integration: MCP', () => {
       'add_note',
       'archive_message',
       'assign_message',
+      'get_attachment',
       'get_message',
       'list_messages',
       'reply',
@@ -147,7 +148,7 @@ describe('integration: MCP', () => {
       subject: 'Fraga om kurs',
       text: 'Hej',
       attachments: [
-        { filename: 'a.pdf', contentType: 'application/pdf', size: 3 }
+        { index: 0, filename: 'a.pdf', contentType: 'application/pdf', size: 3 }
       ]
     })
     expect(JSON.stringify(r.json)).not.toContain('<p>')
@@ -155,6 +156,72 @@ describe('integration: MCP', () => {
     expect(await h.db.listSeen({ org: ORG, threadId: 'm1' })).toMatchObject([
       { email: 'leader@acme.example' }
     ])
+  })
+
+  it('get_attachment hands back an image as an image block, text as text, else a resource', async () => {
+    h.mailStore.seed({
+      bucket: 'b',
+      key: 'inbound/m1',
+      parsed: {
+        text: 'Hej',
+        attachments: [
+          { filename: 'a.pdf', contentType: 'application/pdf', content: '%PDF' },
+          { filename: 'p.png', contentType: 'image/png', content: Buffer.from([1, 2]) },
+          { filename: 'n.csv', contentType: 'text/csv', content: 'a;b' }
+        ]
+      }
+    })
+    const blocks = async (index) => {
+      const { body } = await rpc(h, secret, 'tools/call', {
+        name: 'get_attachment',
+        arguments: { messageId: 'm1', index }
+      })
+      expect(body.result.isError).toBeFalsy()
+      return body.result.content
+    }
+    expect(await blocks(1)).toEqual([
+      { type: 'text', text: 'p.png (image/png, 2 bytes)' },
+      { type: 'image', data: Buffer.from([1, 2]).toString('base64'), mimeType: 'image/png' }
+    ])
+    expect(await blocks(2)).toEqual([
+      { type: 'text', text: 'n.csv (text/csv, 3 bytes)' },
+      { type: 'text', text: 'a;b' }
+    ])
+    expect(await blocks(0)).toEqual([
+      { type: 'text', text: 'a.pdf (application/pdf, 4 bytes)' },
+      {
+        type: 'resource',
+        resource: {
+          uri: 'inbox://messages/m1/attachments/0',
+          mimeType: 'application/pdf',
+          blob: Buffer.from('%PDF').toString('base64')
+        }
+      }
+    ])
+    const missing = await callTool(h, secret, 'get_attachment', { messageId: 'm1', index: 7 })
+    expect(missing.isError).toBe(true)
+    expect(missing.text).toMatch(/^ATTACHMENT_NOT_FOUND/)
+  })
+
+  it('get_attachment above the JSON limit returns the presigned URL', async () => {
+    h.mailStore.seed({
+      bucket: 'b',
+      key: 'inbound/m1',
+      parsed: {
+        text: 'Hej',
+        attachments: [
+          { filename: 'big.bin', contentType: 'application/octet-stream', content: Buffer.alloc(4 * 1024 * 1024 + 1) }
+        ]
+      }
+    })
+    const r = await callTool(h, secret, 'get_attachment', { messageId: 'm1', index: 0 })
+    expect(r.isError).toBeFalsy()
+    expect(r.json).toEqual({
+      filename: 'big.bin',
+      contentType: 'application/octet-stream',
+      size: 4 * 1024 * 1024 + 1,
+      url: expect.stringMatching(/^https:\/\/s3\.example\//)
+    })
   })
 
   it('a scoped owner gets 404 on another category', async () => {

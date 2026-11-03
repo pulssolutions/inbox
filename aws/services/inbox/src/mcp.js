@@ -34,14 +34,40 @@ const threadMember = (m) => ({
   receivedAt: m.receivedAt,
   subject: m.subject,
   text: m.text,
-  attachments: (m.attachments || []).map(({ filename, contentType, size }) => ({
+  attachments: (m.attachments || []).map(({ filename, contentType, size }, index) => ({
+    index,
     filename,
     contentType,
     size
   }))
 })
 
-// name -> [description, input shape, route, build the synthetic request, shape the result]
+// An attachment's bytes as the content block the client can actually use:
+// images inline, text decoded, anything else an embedded resource. Over the
+// JSON limit the route hands out a presigned URL instead, passed on as JSON.
+const attachmentBlocks = ({ messageId, index }, { filename, contentType, size, contentBase64, url }) => {
+  if (url) return { filename, contentType, size, url }
+  const label = { type: 'text', text: `${filename} (${contentType}, ${size} bytes)` }
+  if (contentType.startsWith('image/')) {
+    return [label, { type: 'image', data: contentBase64, mimeType: contentType }]
+  }
+  if (contentType.startsWith('text/')) {
+    return [label, { type: 'text', text: Buffer.from(contentBase64, 'base64').toString('utf8') }]
+  }
+  return [
+    label,
+    {
+      type: 'resource',
+      resource: {
+        uri: `inbox://messages/${messageId}/attachments/${index}`,
+        mimeType: contentType,
+        blob: contentBase64
+      }
+    }
+  ]
+}
+
+// name -> [description, input shape, route, build the synthetic request, shape (args, result)]
 const TOOLS = {
   list_messages: [
     'One page of threads in a box, newest activity first',
@@ -54,21 +80,21 @@ const TOOLS = {
     },
     'GET /admin/messages',
     (a) => ({ query: a }),
-    (r) => ({ items: r.items.map(listItem), cursor: r.cursor })
+    (_, r) => ({ items: r.items.map(listItem), cursor: r.cursor })
   ],
   search_messages: [
     'Search thread subjects, senders and categories',
     { query: z.string() },
     'GET /admin/messages/search',
     (a) => ({ query: { q: a.query } }),
-    (r) => ({ items: r.map(listItem) })
+    (_, r) => ({ items: r.map(listItem) })
   ],
   get_message: [
     'A thread with its messages (text only) and internal notes; marks it read',
     { messageId },
     'GET /admin/messages/{messageId}',
     (a) => ({ pathParameters: { messageId: a.messageId } }),
-    ({ thread, notes, drafts = [], ...m }) => ({
+    (_, { thread, notes, drafts = [], ...m }) => ({
       ...m,
       thread: thread.map(threadMember),
       notes: notes.map(({ text, author, authorName, createdAt }) => ({
@@ -87,6 +113,13 @@ const TOOLS = {
       }))
     })
   ],
+  get_attachment: [
+    'One attachment of a message, by its index from get_message: images inline, text decoded, other files as an embedded resource. Files over 4 MB come back as a short-lived download URL',
+    { messageId, index: z.number().int().min(0) },
+    'GET /admin/messages/{messageId}/attachments/{index}',
+    (a) => ({ pathParameters: { messageId: a.messageId, index: String(a.index) } }),
+    attachmentBlocks
+  ],
   reply: [
     'Email a reply to the sender, from the category address. An owner whose replies need approval gets a draft back instead (status pending_approval)',
     { messageId, body: z.string(), subject: z.string().optional() },
@@ -99,7 +132,7 @@ const TOOLS = {
       pathParameters: { messageId: a.messageId },
       body: { body: a.body, subject: a.subject }
     }),
-    ({ kind, draftId, messageId: id, to, subject, receivedAt, assignee }) =>
+    (_, { kind, draftId, messageId: id, to, subject, receivedAt, assignee }) =>
       kind === 'draft'
         ? { status: 'pending_approval', draftId }
         : { messageId: id, to, subject, receivedAt, assignee }
@@ -112,7 +145,7 @@ const TOOLS = {
       pathParameters: { messageId: a.messageId },
       body: { text: a.text }
     }),
-    ({ createdAt, author, text }) => ({ createdAt, author, text })
+    (_, { createdAt, author, text }) => ({ createdAt, author, text })
   ],
   set_state: [
     'Set the thread state',
@@ -122,7 +155,7 @@ const TOOLS = {
       pathParameters: { messageId: a.messageId },
       body: { state: a.state }
     }),
-    (r) => r
+    (_, r) => r
   ],
   archive_message: [
     'Archive a thread, or move it back to the inbox',
@@ -132,7 +165,7 @@ const TOOLS = {
       pathParameters: { messageId: a.messageId },
       body: { box: a.archived ? 'archived' : 'inbox' }
     }),
-    (r) => r
+    (_, r) => r
   ],
   assign_message: [
     'Assign a thread to an admin by email, or null to unassign',
@@ -142,7 +175,7 @@ const TOOLS = {
       pathParameters: { messageId: a.messageId },
       body: { assignee: a.assignee }
     }),
-    (r) => r
+    (_, r) => r
   ]
 }
 
@@ -171,7 +204,11 @@ const buildServer = (app, { org, claims }) => {
           isError: true
         }
       }
-      return { content: [{ type: 'text', text: JSON.stringify(shape(data)) }] }
+      // A shape that returns an array has built the content blocks itself.
+      const out = shape(args, data)
+      return {
+        content: Array.isArray(out) ? out : [{ type: 'text', text: JSON.stringify(out) }]
+      }
     })
   }
   return server
