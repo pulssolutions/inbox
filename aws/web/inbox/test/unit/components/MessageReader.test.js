@@ -460,6 +460,13 @@ describe('MessageReader', () => {
       expect(card.find('[data-testid="draft-approve"]').exists()).toBe(false)
     })
 
+    it('a resolved draft names who approved or rejected it, not just a name', () => {
+      const sent = mount(MessageReader, { props: { message: message({ drafts: [draft({ status: 'sent', resolvedByName: 'Boss' })] }) } })
+      expect(sent.find('[data-testid="draft-resolved"]').text()).toBe('Godkänt av Boss')
+      const rejected = mount(MessageReader, { props: { message: message({ drafts: [draft({ status: 'rejected', resolvedByName: 'Boss' })] }) } })
+      expect(rejected.find('[data-testid="draft-resolved"]').text()).toBe('Avvisat av Boss')
+    })
+
     it('without send rights the composer only offers Send for approval', async () => {
       const w = mount(MessageReader, { props: { message: message(), canSend: false } })
       expect(w.find('[data-testid="send-reply"]').exists()).toBe(false)

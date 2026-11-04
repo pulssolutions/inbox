@@ -205,8 +205,8 @@
               <p v-if="item.d.status === 'rejected' && item.d.reason" class="muted draft-reason">
                 Anledning: {{ item.d.reason }}
               </p>
-              <p v-else-if="item.d.status !== 'pending' && item.d.resolvedByName" class="muted draft-reason">
-                av {{ item.d.resolvedByName }}
+              <p v-else-if="item.d.status !== 'pending' && item.d.resolvedByName" class="muted draft-reason" data-testid="draft-resolved">
+                {{ item.d.status === 'sent' ? 'Godkänt' : 'Avvisat' }} av {{ item.d.resolvedByName }}
               </p>
             </div>
           </div>
