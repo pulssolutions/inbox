@@ -24,10 +24,11 @@ const toBuffer = async (body) => {
   return Buffer.concat(chunks)
 }
 
-// mailparser rewrites cid: references into inline data: URIs, so a mail with a
-// 7 MB photo yields a ~10 MB html body — past API Gateway's 6 MB response limit,
-// which made the whole message unopenable. Drop the oversized ones; the image is
-// still downloadable from the attachments list.
+// Inline images stay as cid: references (keepCidLinks); mailparser would
+// otherwise inline them as data: URIs, and a 7 MB photo then yields a ~10 MB
+// html body - past API Gateway's 6 MB response limit, which made the whole
+// message unopenable. The web app resolves cid: through the attachment
+// endpoint. A data: URI the sender wrote into the html itself is still capped.
 const DATA_URI_MAX = 100000
 const URI_END = new Set(['"', "'", ')', ' ', '>', '\n', '\r', '\t'])
 // Scanned by hand rather than by regex: a 10 MB single-token match blows the
@@ -96,7 +97,8 @@ const normalize = (mail) => ({
   attachments: (mail.attachments || []).map((a) => ({
     filename: a.filename ?? null,
     contentType: a.contentType ?? null,
-    size: a.size ?? null
+    size: a.size ?? null,
+    cid: a.cid ?? null
   }))
 })
 
@@ -133,7 +135,7 @@ export class MailStore {
 
   async fetchAndParse({ bucket, key }) {
     const raw = await this.fetchRaw({ bucket, key })
-    const mail = await simpleParser(raw)
+    const mail = await simpleParser(raw, { keepCidLinks: true })
     return normalize(mail)
   }
 

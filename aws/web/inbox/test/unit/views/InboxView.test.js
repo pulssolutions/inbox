@@ -129,6 +129,28 @@ describe('InboxView (integration with store + fetch shim)', () => {
     ])
   })
 
+  it('shows a received inline image where its cid: reference was', async () => {
+    addTestMessage({
+      messageId: 'm-photo',
+      threadId: 'm-photo',
+      from: 'Jenny <jenny@example.se>',
+      subject: 'Sv: Engångskod',
+      receivedAt: '2026-11-05T08:35:00Z',
+      box: 'inbox',
+      _body: {
+        text: 'Så här ser det ut.',
+        html: '<p>Så här ser det ut.</p><img src="cid:img0@phone">',
+        attachments: [
+          { filename: 'image0.jpeg', contentType: 'image/jpeg', size: 3, cid: 'img0@phone', content: 'jpg' }
+        ]
+      }
+    })
+    const { w } = await mountView('/m/m-photo')
+    await flushPromises()
+    expect(w.find('.body-html img').attributes('src')).toBe(`data:image/jpeg;base64,${btoa('jpg')}`)
+    expect(w.findAll('[data-testid="attachment"]')).toHaveLength(0)
+  })
+
   it('loads and lists inbox messages newest-first', async () => {
     const { w } = await mountView()
     const items = w.findAll('.list-item')

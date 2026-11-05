@@ -333,17 +333,18 @@ const onDownloadRaw = async (id) => {
 // show progress instead of looking dead.
 const attachmentBusy = ref(null)
 
-// Images we sent are shown in the thread; the recipient sees them inline too.
+// Images shown in the thread: every image we sent (the recipient sees them
+// inline too), and a received one the html references by cid.
 const INLINE_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif'])
 const sentImages = ref({})
 watch(
   () => store.current?.thread,
   (thread) => {
     for (const m of thread || []) {
-      if (m.direction !== 'outbound') continue
-      ;(m.attachments || []).forEach(async (a, i) => {
+      (m.attachments || []).forEach(async (a, i) => {
         const key = `${m.messageId}:${i}`
         if (!INLINE_IMAGE_TYPES.has(a.contentType) || key in sentImages.value) return
+        if (m.direction !== 'outbound' && !(a.cid && m.html?.includes(`cid:${a.cid}`))) return
         sentImages.value[key] = null
         try {
           const f = await store.fetchAttachmentAction(m.messageId, i)

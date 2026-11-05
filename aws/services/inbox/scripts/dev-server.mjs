@@ -76,6 +76,19 @@ const SEED = [
     s3Bucket: 'local',
     s3Key: 'inbound/seed-2'
   },
+  {
+    messageId: 'seed-3',
+    category: 'kurser',
+    from: 'Jenny Fjell <jenny@example.se>',
+    to: ['kurser@acme.example'],
+    subject: 'Sv: Engångskod',
+    receivedAt: '2026-06-03T08:35:00Z',
+    status: 'unread',
+    direction: 'inbound',
+    box: 'inbox',
+    s3Bucket: 'local',
+    s3Key: 'inbound/seed-3'
+  },
   // Enough archived threads to page through.
   ...Array.from({ length: 51 }, (_, i) => ({
     messageId: `seed-archived-${i + 1}`,
@@ -111,16 +124,31 @@ await db.putAdmin({
 })
 await db.putTenant({ domain: 'acme.example', org: ORG, name: 'Acme Ltd' })
 
+// A photo pasted inline from a phone: html references it by cid, the bytes
+// are an attachment. A 2x2 red PNG stands in for the photo.
+const INLINE_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFElEQVR4nGP4z8DwHwyBNAMDAwMAPvYE/cwZZbcAAAAASUVORK5CYII=',
+  'base64'
+)
+const INLINE_IMAGE = {
+  text: 'Tack! Men det går inte ens att hämta engångskoden. Så här ser det ut.',
+  html: '<p>Tack!<br>Men det går inte ens att hämta engångskoden. Så här ser det ut.</p><img src="cid:img0@phone" style="width:120px">',
+  attachments: [{ filename: 'image0.png', contentType: 'image/png', size: INLINE_PNG.length, cid: 'img0@phone', content: INLINE_PNG }]
+}
+
 for (const m of SEED) {
   await db.putMessage({ org: ORG, message: m })
   mailStore.seed({
     bucket: 'local',
     key: m.s3Key,
-    parsed: {
-      text: `Hej! Detta är exempeltext för "${m.subject}".`,
-      html: null,
-      attachments: []
-    }
+    parsed:
+      m.messageId === 'seed-3'
+        ? INLINE_IMAGE
+        : {
+            text: `Hej! Detta är exempeltext för "${m.subject}".`,
+            html: null,
+            attachments: []
+          }
   })
 }
 

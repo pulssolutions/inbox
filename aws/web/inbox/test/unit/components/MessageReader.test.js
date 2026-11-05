@@ -608,6 +608,27 @@ describe('MessageReader', () => {
     expect(w.emitted('download-attachment')[0][0]).toMatchObject({ messageId: 'r1', index: 1 })
   })
 
+  it('substitutes a loaded inline image for its cid: reference instead of listing it', () => {
+    const w = mount(MessageReader, {
+      props: {
+        message: message({
+          thread: [
+            threadMsg({
+              html: '<p>Så här ser det ut.</p><img src="cid:img1@phone">',
+              attachments: [
+                { filename: 'image0.jpeg', contentType: 'image/jpeg', size: 3, cid: 'img1@phone' }
+              ]
+            })
+          ]
+        }),
+        sentImages: { 'a:0': 'data:image/jpeg;base64,anBn' }
+      }
+    })
+    expect(w.find('.body-html img').attributes('src')).toBe('data:image/jpeg;base64,anBn')
+    expect(w.findAll('[data-testid="sent-image"]')).toHaveLength(0)
+    expect(w.findAll('[data-testid="attachment"]')).toHaveLength(0)
+  })
+
   it('the mobile composer bar has no spacer', () => {
     const w = mount(MessageReader, { props: { message: message() } })
     expect(w.find('.composer-mobile-bar .topbar-spacer').exists()).toBe(false)

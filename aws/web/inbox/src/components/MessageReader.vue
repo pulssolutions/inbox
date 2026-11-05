@@ -143,7 +143,7 @@
               <div v-else class="body-text">{{ item.m.text }}</div>
               <template v-for="(a, i) in item.m.attachments || []" :key="'img' + i">
                 <img
-                  v-if="sentImages[`${item.m.messageId}:${i}`]"
+                  v-if="!a.cid && sentImages[`${item.m.messageId}:${i}`]"
                   class="sent-image"
                   data-testid="sent-image"
                   :src="sentImages[`${item.m.messageId}:${i}`]"
@@ -633,9 +633,18 @@ const downloads = (m) =>
     .map((a, i) => ({ a, i }))
     .filter(({ i }) => !(`${m.messageId}:${i}` in props.sentImages))
 
-// Sanitize the HTML part (keeps inline colour, strips scripts/handlers).
-const htmlOf = (member) =>
-  member.html ? DOMPurify.sanitize(member.html, { FORBID_TAGS: ['style'], ADD_ATTR: ['target'] }) : null
+// Sanitize the HTML part (keeps inline colour, strips scripts/handlers). An
+// inline image arrives as <img src="cid:..."> with the bytes among the
+// attachments; once loaded, the data: URI takes the reference's place.
+const htmlOf = (member) => {
+  if (!member.html) return null
+  let html = member.html
+  ;(member.attachments || []).forEach((a, i) => {
+    const src = a.cid && props.sentImages[`${member.messageId}:${i}`]
+    if (src) html = html.split(`cid:${a.cid}`).join(src)
+  })
+  return DOMPurify.sanitize(html, { FORBID_TAGS: ['style'], ADD_ATTR: ['target'] })
+}
 
 const send = () => {
   const text = draft.value.trim()

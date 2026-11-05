@@ -177,8 +177,9 @@ describe('MailStore.fetchAttachment', () => {
   })
 })
 
-// A phone photo pasted inline: mailparser turns the cid: reference into a data:
-// URI, which used to blow the whole message past API Gateway's 6 MB limit.
+// A phone photo pasted inline. mailparser would rewrite the cid: reference into
+// a data: URI, which blew a 7 MB photo past API Gateway's 6 MB limit; the
+// reference is kept instead and the web app fetches the attachment by index.
 const BIG_INLINE = (() => {
   const b64 = Buffer.alloc(200000, 1).toString('base64')
   return [
@@ -204,12 +205,12 @@ const BIG_INLINE = (() => {
 })()
 
 describe('MailStore inline images', () => {
-  it('strips oversized inline data: URIs but keeps the attachment listed', async () => {
+  it('keeps the cid: reference and exposes the cid on the attachment', async () => {
     const store = new MailStore({ client: fakeClient({ k: BIG_INLINE }) })
     const mail = await store.fetchAndParse({ bucket: 'b', key: 'k' })
-    expect(mail.html).toContain('Se bilden')
+    expect(mail.html).toContain('<img src="cid:img1">')
     expect(mail.html.length).toBeLessThan(10000)
-    expect(mail.attachments[0].filename).toBe('photo.png')
+    expect(mail.attachments[0]).toMatchObject({ filename: 'photo.png', cid: 'img1' })
   })
 })
 
